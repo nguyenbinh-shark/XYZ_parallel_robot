@@ -18,8 +18,8 @@
    ===================================================================== */
 
 /* ---------- Cau hinh phan cung ---------- */
-#define PIN_SERVO1      47      /* Motor 1 – goc A (trai)              */
-#define PIN_SERVO2      48      /* Motor 2 – goc C (phai)              */
+#define PIN_SERVO1      48      /* Motor 1 – goc A (trai)              */
+#define PIN_SERVO2      47      /* Motor 2 – goc C (phai)              */
 
 #define SERVO_HZ        50
 #define SERVO_US_MIN    500
@@ -33,8 +33,8 @@
 #define SERVO_XY_INTERVAL_MS  20
 
 /* Hieu chinh offset lap dat (do): chinh neu robot bi lech sau khi lap  */
-#define SERVO1_OFFSET   45.0f    /* Servo GPIO47: +45 do */
-#define SERVO2_OFFSET  -45.0f    /* Servo GPIO48: -45 do */
+#define SERVO1_OFFSET  -45.0f    /* Servo GPIO48: +45 do */
+#define SERVO2_OFFSET  +45.0f    /* Servo GPIO47: -45 do */
 
 /* Motor 2 cung chieu Motor 1 (SERVO2_INVERT = false)                   */
 #define SERVO2_INVERT   false
@@ -276,19 +276,29 @@ static void pp_update()
     }
 }
 /* ------------------------------------------------------------------
-   map_servo1/2: doi goc IK (do) sang goc vat ly servo.
+   reverse_dir: anh xa nguoc gia tri goc 0..180 -> 180..0.
+   IK tinh theo quy uoc NGUOC chieu kim dong ho (CCW), nhung dong co
+   thuc te quay THUAN chieu kim dong ho (CW) -> phai dao chieu.
+   ------------------------------------------------------------------ */
+static inline float reverse_dir(float angle)
+{
+    return 180.0f - angle;
+}
+
+/* ------------------------------------------------------------------
+   map_servo1/2: doi goc IK (do, CCW) sang goc vat ly servo (CW).
    Tra ve -1.0f neu goc nam ngoai [0, 180].
    ------------------------------------------------------------------ */
 static float map_servo1(float theta)
 {
-    float a = theta + SERVO1_OFFSET;
+    float a = reverse_dir(theta + SERVO1_OFFSET);
     return (a >= 0.0f && a <= 180.0f) ? a : -1.0f;
 }
 
 static float map_servo2(float theta)
 {
-    float a = SERVO2_INVERT ? (180.0f - theta + SERVO2_OFFSET)
-                             : (theta + SERVO2_OFFSET);
+    float a = reverse_dir(theta + SERVO2_OFFSET);
+    if (SERVO2_INVERT) a = 180.0f - a;   /* truong hop servo 2 lap doi xung */
     return (a >= 0.0f && a <= 180.0f) ? a : -1.0f;
 }
 
@@ -303,7 +313,7 @@ static bool move_to(float x, float y)
 {
     float t1, t2;
     if (!ik_5bar(x, y, &t1, &t2)) {
-        Serial.printf("[ERR] Ngoai workspace: (%.2f, %.2f)\n", x, y);
+        Serial.printf("[ERR] IK vo nghiem: (%.2f, %.2f)\n", x, y);
         return false;
     }
 

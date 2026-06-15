@@ -34,10 +34,10 @@
    Pitch  : buoc vit me (mm / vong truc ra)  – chinh theo vit thuc te  */
 #define Z_ENC_PPR       11
 #define Z_GEAR_RATIO    21.3f
-#define Z_SCREW_PITCH   2.0f
+#define Z_SCREW_PITCH   8.0f    /* vit me lead 8mm/vong */
 
 /* Xung/mm trong che do 4x quadrature:
-   PPR * 4 * Gear / Pitch  =  11 * 4 * 21.3 / 2.0  ~= 468.6 xung/mm  */
+   PPR * 4 * Gear / Pitch  =  11 * 4 * 21.3 / 8.0  ~= 117.15 xung/mm  */
 #define Z_PULSE_PER_MM  ((Z_ENC_PPR * 4.0f * Z_GEAR_RATIO) / Z_SCREW_PITCH)
 
 /* --- Gioi han hanh trinh (mm) – chinh theo chieu dai vit me thuc te --- */

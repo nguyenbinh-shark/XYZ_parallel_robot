@@ -9,16 +9,18 @@
  *        E (x, y)  <- diem cuoi
  *       /  \
  *     L2    L3
- *     /      \
- *    B        D
- *    |        |
- *   L1        L4
- *    |        |
+
+
+ **  (0,0)    (L0,0)    |        |
  *    A--------C
- *  (0,0)    (L0,0)
- *
+ *    |        |
+ *   L1        L4 
+ *    B        D
+ *    \       /
+*
  *  - Dong co 1 dat tai goc A(0,0), goc quay theta1 (do, so voi truc +X)
  *  - Dong co 2 dat tai C(L0,0), goc quay theta2 (do, so voi truc +X)
+ *  - Quy uoc goc: duong = thuan chieu kim dong ho.
  *  - Working mode: khuyu huong ra ngoai
  */
 
@@ -36,8 +38,9 @@ extern "C" {
 /*
  * Tinh dong hoc nguoc.
  *   x, y      : toa do diem cuoi (mm)
- *   theta1_deg: [out] goc dong co 1 (do)
- *   theta2_deg: [out] goc dong co 2 (do)
+ *   theta1_deg: [out] goc khau L1 (do, duong = NGUOC chieu kim dong ho / CCW)
+ *   theta2_deg: [out] goc khau L4 (do, duong = NGUOC chieu kim dong ho / CCW)
+ *   (Dao sang chieu dong co CW xu ly o lop anh xa servo)
  * Tra ve 1 neu giai duoc, 0 neu ngoai workspace.
  */
 uint8_t ik_5bar(float x, float y, float *theta1_deg, float *theta2_deg);

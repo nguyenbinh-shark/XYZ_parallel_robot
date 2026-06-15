@@ -1,0 +1,40 @@
+ % ====== Nhánh trái (O-A-B) ======
+    a = 2*xB*l1;
+    b = 2*yB*l1;
+    c = xB^2 + yB^2 + l1^2 - l2^2;
+    [theta1_t1, theta1_t2, ok1] = angle(a, b, c);
+    if ~ok1, ok = false; return; end
+
+    % In nghiệm nhánh trái
+    fprintf('OA:  t1 = %.6f rad (%.3f°),  t2 = %.6f rad (%.3f°)\n', ...
+        theta1_t1, rad2deg(theta1_t1), theta1_t2, rad2deg(theta1_t2));
+
+    % ====== Nhánh phải (D-C-B) ======
+    d = 2*(xB - l0)*l4;
+    e = 2*yB*l4;
+    f = (l0 - xB)^2 + yB^2 + l4^2 - l3^2;
+    [theta2_t1, theta2_t2, ok2] = angle(d, e, f);
+    if ~ok2, ok = false; return; end
+
+       % ====== Chọn nghiệm theo yB ======
+    if yB >= 0
+        theta1 = theta1_t1;
+        theta2 = theta2_t2;
+    else
+        theta1 = theta1_t2;
+        theta2 = theta2_t1;
+    end
+
+    function [t1, t2, ok] = angle(A, B, C)
+    disc = A^2 + B^2 - C^2;
+        if disc < 0
+            ok = false;
+            t1 = NaN; t2 = NaN;
+            return;
+        end
+    s = sqrt(disc);
+    denom = A + C;
+    t1 = 2*atan((B + s)/denom);
+    t2 = 2*atan((B - s)/denom);
+    ok = true;
+end

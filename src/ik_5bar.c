@@ -3,40 +3,56 @@
 
 #define RAD2DEG 57.29577951f
 
-static uint8_t solve_branch(float c, float d, float e, float sign, float *t_rad)
+/*
+ * Giai phuong trinh dang: A*cos(t) + B*sin(t) = C
+ * Hai nghiem:
+ *   t1 = 2*atan((B + s)/(A + C))
+ *   t2 = 2*atan((B - s)/(A + C))   voi s = sqrt(A^2 + B^2 - C^2)
+ * Tra ve 0 neu disc < 0 (ngoai workspace).
+ */
+static uint8_t angle(float A, float B, float C, float *t1, float *t2)
 {
-    float s = d * d + e * e - c * c;
-    if (s < 0.0f) return 0;
+    float disc = A * A + B * B - C * C;
+    if (disc < 0.0f) return 0;
 
-    float root = sqrtf(s);
-    float num  = e + sign * root;
-    float den  = d + c;
-
-    if (num == 0.0f && den == 0.0f) return 0;
-
-    *t_rad = 2.0f * atan2f(num, den);
+    float s     = sqrtf(disc);
+    float denom = A + C;
+    *t1 = 2.0f * atanf((B + s) / denom);
+    *t2 = 2.0f * atanf((B - s) / denom);
     return 1;
 }
 
 uint8_t ik_5bar(float x, float y, float *theta1_deg, float *theta2_deg)
 {
-    float t1, t2;
+    float theta1_t1, theta1_t2;
+    float theta2_t1, theta2_t2;
 
-    float c1 = x * x + y * y + IK_L1 * IK_L1 - IK_L2 * IK_L2;
-    float d1 = 2.0f * IK_L1 * x;
-    float e1 = 2.0f * IK_L1 * y;
-    if (!solve_branch(c1, d1, e1, +1.0f, &t1)) return 0;
+    /* ====== Nhanh trai (O-A-B) ====== */
+    float a = 2.0f * x * IK_L1;
+    float b = 2.0f * y * IK_L1;
+    float c = x * x + y * y + IK_L1 * IK_L1 - IK_L2 * IK_L2;
+    if (!angle(a, b, c, &theta1_t1, &theta1_t2)) return 0;
 
-    float dx = x - IK_L0;
-    float c2 = dx * dx + y * y + IK_L4 * IK_L4 - IK_L3 * IK_L3;
-    float d2 = 2.0f * IK_L4 * dx;
-    float e2 = 2.0f * IK_L4 * y;
-    if (!solve_branch(c2, d2, e2, -1.0f, &t2)) return 0;
+    /* ====== Nhanh phai (D-C-B) ====== */
+    float d = 2.0f * (x - IK_L0) * IK_L4;
+    float e = 2.0f * y * IK_L4;
+    float f = (IK_L0 - x) * (IK_L0 - x) + y * y + IK_L4 * IK_L4 - IK_L3 * IK_L3;
+    if (!angle(d, e, f, &theta2_t1, &theta2_t2)) return 0;
 
-    if (t1 < 0.0f) t1 += 2.0f * (float)M_PI;
-    if (t2 < 0.0f) t2 += 2.0f * (float)M_PI;
+    /* ====== Chon nghiem theo y ====== */
+    float theta1, theta2;
+    if (y >= 0.0f) {
+        theta1 = theta1_t1;
+        theta2 = theta2_t2;
+    } else {
+        theta1 = theta1_t2;
+        theta2 = theta2_t1;
+    }
 
-    *theta1_deg = t1 * RAD2DEG;
-    *theta2_deg = t2 * RAD2DEG;
+    /* Tra ve goc toan hoc thuan: nguoc chieu kim dong ho (CCW) so voi
+     * truc +X, dung y nhu MATLAB. Viec dao sang chieu dong co (CW)
+     * duoc xu ly o lop anh xa servo (map_servo1/2). */
+    *theta1_deg = theta1 * RAD2DEG;
+    *theta2_deg = theta2 * RAD2DEG;
     return 1;
 }
