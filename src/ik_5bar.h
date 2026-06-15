@@ -24,7 +24,7 @@
  *  - Working mode: khuyu huong ra ngoai
  */
 
-/* Kich thuoc khau (mm) */
+/* Kich thuoc khau (mm) – khop file MATLAB (l0=5.5 l1=7 l2=13 l3=13 l4=7 cm) */
 #define IK_L0  55.0f
 #define IK_L1  70.0f
 #define IK_L2  130.0f

@@ -122,10 +122,14 @@
         <div class="rd"><div class="lab">Y (mm)</div><div class="val" id="rY">--.-</div></div>
         <div class="rd"><div class="lab">Z (mm)</div><div class="val" id="rZ">--.--</div></div>
         <div class="rd"><div class="lab">VL53L0X (mm)</div><div class="val" id="rD">---</div></div>
+        <div class="rd"><div class="lab">Động cơ 1 (°)</div><div class="val" id="rS1">---</div></div>
+        <div class="rd"><div class="lab">Động cơ 2 (°)</div><div class="val" id="rS2">---</div></div>
+        <div class="rd"><div class="lab">X từ servo (mm)</div><div class="val" id="rFKx">--.-</div></div>
+        <div class="rd"><div class="lab">Y từ servo (mm)</div><div class="val" id="rFKy">--.-</div></div>
       </div>
       <div class="statebar" id="stateBar"><div class="lab" style="font-size:10px;color:var(--dim)">PICK &amp; PLACE STATE</div><div class="val" id="rState">IDLE</div></div>
       <div class="lamps">
-        <div class="lamp"><span class="dot" id="lGrip"></span> Giac hut</div>
+        <div class="lamp"><span class="dot" id="lGrip"></span> Giác hút / Bơm</div>
         <div class="lamp"><span class="dot" id="lLim"></span> Gioi han tren</div>
         <div class="lamp"><span class="dot" id="lXY"></span> XY dang chay</div>
         <div class="lamp"><span class="dot" id="lZ"></span> Z dang chay</div>
@@ -158,8 +162,8 @@
           <span class="empty"></span>
         </div>
         <div class="row" style="margin-top:8px">
-          <div><label class="f">X</label><input id="goX" value="19"></div>
-          <div><label class="f">Y</label><input id="goY" value="45"></div>
+          <div><label class="f">X</label><input id="goX" value="27.5"></div>
+          <div><label class="f">Y</label><input id="goY" value="80"></div>
           <button class="btn acc" id="goXY" style="width:auto;padding:9px 14px">GO</button>
         </div>
       </fieldset>
@@ -186,12 +190,12 @@
       </fieldset>
 
       <fieldset>
-        <legend>Giac hut / Bom</legend>
+        <legend>Giác hút / Bơm</legend>
         <div class="grid2">
-          <button class="btn grn" id="gSuck">HUT</button>
-          <button class="btn" id="gDrop">NHA</button>
-          <button class="btn sm" id="pOn">BOM ON</button>
-          <button class="btn sm" id="pOff">BOM OFF</button>
+          <button class="btn grn" id="gSuck">HÚT</button>
+          <button class="btn" id="gDrop">NHẢ</button>
+          <button class="btn sm grn" id="pOn">BẬT BƠM</button>
+          <button class="btn sm warn" id="pOff">TẮT BƠM</button>
         </div>
       </fieldset>
 
@@ -216,8 +220,8 @@
       <fieldset>
         <legend>Vi tri LAY (pick)</legend>
         <div class="grid3">
-          <div><label class="f">X</label><input id="pkX" value="19"></div>
-          <div><label class="f">Y</label><input id="pkY" value="45"></div>
+          <div><label class="f">X</label><input id="pkX" value="27.5"></div>
+          <div><label class="f">Y</label><input id="pkY" value="80"></div>
           <div><label class="f">Z</label><input id="pkZ" value="5"></div>
         </div>
         <button class="btn sm acc" id="setPick" style="margin-top:8px">SET PICK</button>
@@ -225,8 +229,8 @@
       <fieldset>
         <legend>Vi tri DAT (place)</legend>
         <div class="grid3">
-          <div><label class="f">X</label><input id="plX" value="34"></div>
-          <div><label class="f">Y</label><input id="plY" value="45"></div>
+          <div><label class="f">X</label><input id="plX" value="42.5"></div>
+          <div><label class="f">Y</label><input id="plY" value="80"></div>
           <div><label class="f">Z</label><input id="plZ" value="5"></div>
         </div>
         <button class="btn sm acc" id="setPlace" style="margin-top:8px">SET PLACE</button>
@@ -266,7 +270,20 @@
    Mo bang Edge/Chrome. Khong can cai dat.
    =================================================================== */
 const BAUD = 115200;
-const L0=38, L1=50, L2=50, L3=50, L4=50;   /* khop voi ik_5bar.h */
+const L0=55, L1=70, L2=130, L3=130, L4=70;   /* khop voi ik_5bar.h (MATLAB l*10) */
+/* Offset servo – PHAI khop main.cpp (SERVO1_OFFSET / SERVO2_OFFSET / SERVO2_INVERT) */
+const SV1_OFF=-45, SV2_OFF=45, SV2_INV=false;
+const D2R=Math.PI/180;
+/* Dao nguoc anh xa servo -> goc hinh hoc (rad). map: a = 180-(theta+off) [+invert] */
+function servoToTheta(a,off,inv){const rv=inv?(180-a):a;return (180-off-rv)*D2R;}
+/* Giao 2 duong tron: tra ve 2 diem hoac null */
+function circInt(p0,r0,p1,r1){
+  const dx=p1.x-p0.x,dy=p1.y-p0.y,d=Math.hypot(dx,dy);
+  if(d===0||d>r0+r1||d<Math.abs(r0-r1))return null;
+  const a=(r0*r0-r1*r1+d*d)/(2*d),h2=r0*r0-a*a;if(h2<0)return null;
+  const h=Math.sqrt(h2),xm=p0.x+a*dx/d,ym=p0.y+a*dy/d;
+  return [{x:xm-dy*h/d,y:ym+dx*h/d},{x:xm+dy*h/d,y:ym-dx*h/d}];
+}
 
 let port=null, reader=null, writer=null, keepReading=false, connected=false;
 let readLoopDone=null;
@@ -275,7 +292,7 @@ let gotRx=false, lastRxMs=0;
 const enc=new TextEncoder();
 const $=id=>document.getElementById(id);
 
-const st={name:'IDLE',x:19,y:45,z:0,grip:0,dist:-1,xymv:0,zmv:0,lim:0};
+const st={name:'IDLE',x:19,y:45,z:0,grip:0,dist:-1,xymv:0,zmv:0,lim:0,s1:null,s2:null};
 const pickMk={x:null,y:null}, placeMk={x:null,y:null};
 let jogXY=5, jogZ=2;
 
@@ -391,6 +408,8 @@ function applyTlm(a){
   st.name=a[0]; st.x=+a[1]; st.y=+a[2]; st.z=+a[3];
   st.grip=+a[4]; st.dist=+a[5]; st.xymv=+a[6]; st.zmv=+a[7];
   st.lim=(a.length>8)?+a[8]:0;
+  st.s1=(a.length>9)?+a[9]:null;
+  st.s2=(a.length>10)?+a[10]:null;
   renderAll();
 }
 function fillPP(a){ /* pickXYZ, placeXYZ, safez, settle, grip, drop */
@@ -413,6 +432,8 @@ function renderAll(){
   $('rY').textContent=isFinite(st.y)?st.y.toFixed(1):'--.-';
   $('rZ').textContent=isFinite(st.z)?st.z.toFixed(2):'--.--';
   $('rD').textContent=(st.dist>=0)?st.dist:'---';
+  $('rS1').textContent=(st.s1!=null&&isFinite(st.s1))?st.s1+'°':'---';
+  $('rS2').textContent=(st.s2!=null&&isFinite(st.s2))?st.s2+'°':'---';
   renderState();
   lamp('lGrip',st.grip,'g');
   lamp('lLim',st.lim,'r');
@@ -434,7 +455,7 @@ function ik(x,y){
   return {t1,t2};
 }
 /* khung toa do mo hinh -> canvas */
-const MX0=-24, MY0=-8, MXS=86, MYS=104;       /* vung mo hinh (mm) */
+const MX0=-85, MY0=-15, MXS=225, MYS=185;       /* vung mo hinh (mm) – robot 70/130 */
 let CV,CTX,SC,PADX,PADY;
 function setupCanvas(){
   CV=$('cv');CTX=CV.getContext('2d');
@@ -461,20 +482,38 @@ function draw(){
   /* markers pick/place */
   if(pickMk.x!=null){dot(pickMk.x,pickMk.y,6,'#1f8f48');label(pickMk.x,pickMk.y,'P');}
   if(placeMk.x!=null){dot(placeMk.x,placeMk.y,6,'#9a6212');label(placeMk.x,placeMk.y,'D');}
-  /* co cau */
-  const sol=ik(st.x,st.y);
-  if(sol){
-    const B={x:L1*Math.cos(sol.t1), y:L1*Math.sin(sol.t1)};
-    const D={x:L0+L4*Math.cos(sol.t2), y:L4*Math.sin(sol.t2)};
+  /* co cau – uu tien ve theo GOC SERVO THUC (gom offset) qua dong hoc thuan;
+     neu chua co telemetry s1/s2 thi fallback IK tu (x,y).                    */
+  let B=null,D=null,E=null;
+  if(st.s1!=null&&st.s2!=null&&isFinite(st.s1)&&isFinite(st.s2)){
+    const t1=servoToTheta(st.s1,SV1_OFF,false);
+    const t2=servoToTheta(st.s2,SV2_OFF,SV2_INV);
+    B={x:L1*Math.cos(t1), y:L1*Math.sin(t1)};
+    D={x:L0+L4*Math.cos(t2), y:L4*Math.sin(t2)};
+    const hits=circInt(B,L2,D,L3);
+    if(hits) E=(hits[0].y>=hits[1].y)?hits[0]:hits[1];   /* lay nghiem phia tren */
+  }
+  if(!E){
+    const sol=ik(st.x,st.y);
+    if(sol){
+      B={x:L1*Math.cos(sol.t1), y:L1*Math.sin(sol.t1)};
+      D={x:L0+L4*Math.cos(sol.t2), y:L4*Math.sin(sol.t2)};
+      E={x:st.x,y:st.y};
+    }
+  }
+  if(E&&B&&D){
     line(A.x,A.y,B.x,B.y,'#23a6ff',4);
-    line(B.x,B.y,st.x,st.y,'#67d0ff',4);
+    line(B.x,B.y,E.x,E.y,'#67d0ff',4);
     line(C.x,C.y,D.x,D.y,'#23a6ff',4);
-    line(D.x,D.y,st.x,st.y,'#67d0ff',4);
+    line(D.x,D.y,E.x,E.y,'#67d0ff',4);
     dot(B.x,B.y,4,'#9fd8ff'); dot(D.x,D.y,4,'#9fd8ff');
-    dot(st.x,st.y,7,'#5ef0ff');
+    dot(E.x,E.y,7,'#5ef0ff');
   }else{
     dot(st.x,st.y,7,'#ff4d4d');
   }
+  /* Toa do dau cong tac tinh NGUOC tu goc servo thuc (gom offset) */
+  $('rFKx').textContent=E?E.x.toFixed(1):'--.-';
+  $('rFKy').textContent=E?E.y.toFixed(1):'--.-';
   /* dong co nen */
   dot(A.x,A.y,7,'#c9d6e2'); dot(C.x,C.y,7,'#c9d6e2');
   CTX.fillStyle='#7b8a9a';CTX.font='11px Consolas';

@@ -36,8 +36,8 @@
 
 | Chức năng | Tên tín hiệu | GPIO | Loại | Mô tả |
 |---|---|---|---|---|
-| Robot phẳng | SERVO1 | 47 | PWM 50Hz | Động cơ servo tại A(0,0) |
-| Robot phẳng | SERVO2 | 48 | PWM 50Hz | Động cơ servo tại C(38,0) |
+| Robot phẳng | SERVO1 | 48 | PWM 50Hz | Động cơ 1 tại A(0,0) – trái |
+| Robot phẳng | SERVO2 | 47 | PWM 50Hz | Động cơ 2 tại C(55,0) – phải |
 | Trục Z | MOTOR_IN1 | 4 | OUTPUT | Chiều quay H-bridge |
 | Trục Z | MOTOR_IN2 | 5 | OUTPUT | Chiều quay H-bridge |
 | Trục Z | MOTOR_PWM (ENA) | 6 | LEDC 20kHz | Tốc độ PWM động cơ |
@@ -68,15 +68,19 @@ Robot song song 5 khâu (five-bar linkage) với 2 khớp chủ động:
     L1       L4
      |       |
      A───────C
-   (0,0)  (38,0)
+   (0,0)  (55,0)
 
-  Thông số:  L0 = 38 mm  (khoảng cách 2 trục)
-             L1 = L2 = L3 = L4 = 50 mm
+  Thông số:  L0 = 55 mm  (khoảng cách 2 trục)
+             L1 = L4 = 70 mm   (khâu gần – nối với động cơ)
+             L2 = L3 = 130 mm  (khâu xa – nối đầu công tác)
+             (khớp file MATLAB Kinematic_and_workspace.m: l0=5.5 l1=7 l2=13 cm ×10)
 ```
 
-- **Motor 1** tại A(0,0): góc θ₁ đo từ trục +X
-- **Motor 2** tại C(38,0): góc θ₂ đo từ trục +X
-- **Vùng làm việc**: xấp xỉ 40 × 60 mm (Y > 0)
+- **Motor 1** tại A(0,0): góc θ₁ đo từ trục +X (gốc tọa độ = tâm động cơ trái)
+- **Motor 2** tại C(55,0): góc θ₂ đo từ trục +X
+- Quy ước: x sang ngang, y hướng lên; chiều dương động cơ = **thuận chiều kim đồng hồ**
+- **Vùng làm việc**: giao của 2 vành khuyên (bán kính trong |L2−L1| = **60 mm**, ngoài
+  L1+L2 = **200 mm**) quanh A và C; thực tế bị thu hẹp thêm bởi giới hạn góc servo [0,180]
 
 ### 2.2 Sơ đồ khối phần mềm – Chức năng 1
 
@@ -98,10 +102,10 @@ Robot song song 5 khâu (five-bar linkage) với 2 khớp chủ động:
                                                                 │
                                                                 ▼
                      ┌─────────────────────────────────┐  ┌──────────────┐
-                     │ Nội suy ĐỒNG BỘ theo thời gian   │  │  Servo PWM   │
-                     │ u = (t−t_start)/T_total ∈ [0,1]  │─►│  s1.write()  │
-                     │ a = lerp(a_start, a_goal, u)      │  │  s2.write()  │
-                     │ (2 trục CHUNG u → kết thúc cùng lúc)│ └──────────────┘
+                     │ Nội suy ĐỒNG BỘ theo thời gian  │  │  Servo PWM   │
+                     │ u = (t−t_start)/T_total ∈ [0,1] │─►│  s1.write()  │
+                     │ a = lerp(a_start, a_goal, u)    │  │  s2.write()  │
+                     │(2 trục CHUNG u → kết thúc cùng )│  └──────────────┘
                      └─────────────────────────────────┘
 ```
 
@@ -112,40 +116,43 @@ Robot song song 5 khâu (five-bar linkage) với 2 khớp chủ động:
 
 ### 2.3 Mô hình toán học – Động học ngược (IK)
 
-**Với Motor 1 tại A(0,0):**
+Mỗi nhánh quy về giải phương trình `A·cosθ + B·sinθ = C`, nghiệm Weierstrass:
+`θ = 2·atan( (B ± √(A²+B²−C²)) / (A+C) )`. Triển khai **bám đúng file MATLAB**.
+
+**Nhánh trái – Motor 1 tại A(0,0):**
 
 ```
-c₁ = x² + y² + L1² − L2²
-d₁ = 2·L1·x
-e₁ = 2·L1·y
-
-Điều kiện tồn tại: d₁² + e₁² − c₁² ≥ 0
-
-θ₁ = 2·atan2( e₁ + √(d₁² + e₁² − c₁²) , d₁ + c₁ )
+A = 2·L1·x ;  B = 2·L1·y ;  C = x² + y² + L1² − L2²
+Điều kiện tồn tại (trong vùng làm việc): A² + B² − C² ≥ 0   (nếu < 0 → ngoài workspace)
+θ1_(+) = 2·atan( (B + √disc)/(A+C) ) ;  θ1_(−) = 2·atan( (B − √disc)/(A+C) )
 ```
 
-**Với Motor 2 tại C(L0, 0):**
+**Nhánh phải – Motor 2 tại C(L0,0):**
 
 ```
-dx = x − L0
-c₂ = dx² + y² + L4² − L3²
-d₂ = 2·L4·dx
-e₂ = 2·L4·y
-
-θ₂ = 2·atan2( e₂ − √(d₂² + e₂² − c₂²) , d₂ + c₂ )   [nhánh âm]
+A = 2·L4·(x − L0) ;  B = 2·L4·y ;  C = (L0 − x)² + y² + L4² − L3²
+θ2_(+), θ2_(−)  tính tương tự
 ```
 
-**Chuẩn hóa:** Nếu θ < 0 → θ += 2π để đưa về [0°, 360°)
+**Chọn nghiệm theo dấu y (chọn 1 chế độ lắp – khuỷu hướng ra ngoài):**
+
+```
+nếu y ≥ 0:  θ1 = θ1_(+) ,  θ2 = θ2_(−)
+nếu y < 0:  θ1 = θ1_(−) ,  θ2 = θ2_(+)
+```
+
+`ik_5bar()` trả về **góc hình học θ (CCW so với +X)** – thuần toán học, **chưa có offset**.
+Việc đổi sang góc servo (offset + đảo chiều + chuẩn hóa) làm ở lớp `map_servo` (mục 2.7).
 
 ### 2.4 Bảng Input / Output
 
 | | Tên | Kiểu dữ liệu | Đơn vị | Giá trị hợp lệ | Ghi chú |
 |---|---|---|---|---|---|
-| **INPUT** | x | float | mm | [0, 38] | Tọa độ X đầu công tác |
-| **INPUT** | y | float | mm | [10, 90] | Tọa độ Y đầu công tác |
-| **OUTPUT** | θ1 | float → int | độ | [0, 180] | Góc servo motor 1 |
-| **OUTPUT** | θ2 | float → int | độ | [0, 180] | Góc servo motor 2 |
-| **OUTPUT** | return | uint8_t | – | 0 hoặc 1 | 1=thành công, 0=ngoài workspace |
+| **INPUT** | x | float | mm | ~[−40, 95] | Tọa độ X (đo từ tâm động cơ trái) |
+| **INPUT** | y | float | mm | ~[55, 190] | Tọa độ Y (>0), trong giao 2 vành khuyên |
+| **OUTPUT** | θ1 | float | độ | góc hình học | Góc khâu L1 (CCW so với +X), CHƯA offset |
+| **OUTPUT** | θ2 | float | độ | góc hình học | Góc khâu L4 (CCW so với +X), CHƯA offset |
+| **OUTPUT** | return | uint8_t | – | 0 hoặc 1 | 1=giải được, 0=ngoài workspace (disc<0) |
 
 ### 2.5 Flowchart – Thuật toán IK
 
@@ -201,12 +208,12 @@ e₂ = 2·L4·y
                                      └──────────┬──────────┘
                                                 │
                                                 ▼
-                                     ┌─────────────────────────┐
-                                     │ Đặt đích a1_goal/a2_goal│
+                                     ┌──────────────────────── ─┐
+                                     │ Đặt đích a1_goal/a2_goal │
                                      │ T_total = Δgóc_max /     │
                                      │   SERVO_SPEED_DPS        │
                                      │ xy_moving = true; return1│
-                                     └──────────┬──────────────┘
+                                     └──────────┬────────────── ┘
                                                 │
                                   [servo_xy_update() nội suy trong loop()]
 ```
@@ -248,6 +255,29 @@ servo_xy_update()  [loop(), mỗi 20ms]:
 > chuyển ngắn của pick-place thì an toàn. Nếu cần đường thẳng/tránh va chạm → nội suy Cartesian
 > (chạy IK mỗi bước, kiểm điểm trung gian trong workspace) — chưa cần ở phiên bản này.
 
+### 2.7 Ánh xạ góc hình học → góc servo (offset, đảo chiều, chuẩn hóa)
+
+`ik_5bar()` cho góc hình học θ (CCW). Servo cần góc vật lý [0,180°] theo chiều CW. Chuỗi:
+
+```
+a = 180 − (θ + OFFSET)          // reverse_dir: CCW → CW; OFFSET = hiệu chỉnh lắp đặt
+nếu SERVO2_INVERT: a = 180 − a  // chỉ servo 2 nếu lắp đối xứng gương
+a = wrap360(a)                  // đưa về [0,360): fmod + cộng 360 nếu âm
+hợp lệ nếu a ≤ 180, ngược lại (180,360) → ngoài hành trình servo → trả −1
+```
+
+- **OFFSET** (`SERVO1_OFFSET=−45`, `SERVO2_OFFSET=+45`): chọn để HOME nằm trong tầm servo.
+  Đây là hiệu chuẩn **vật lý** – phải khớp cách lắp còi servo.
+- **`wrap360()` rất quan trọng:** `atan` (và cả `atan2`) có thể trả góc lệch ±360° →
+  nếu so trực tiếp `[0,180]` sẽ bị **"quá giới hạn ảo"** (từ chối điểm hợp lệ). Wrap rồi
+  mới so giúp `atan`/`atan2` cho **cùng kết quả đúng**, loại trừ lỗi này.
+- 3 nơi offset phải **đồng bộ**: còi servo (vật lý) ↔ `SERVO*_OFFSET` (firmware) ↔
+  `SV*_OFF` (web HMI). Lệch nhau → vị trí thật / hình vẽ sai.
+
+> "Giới hạn vùng làm việc" thực tế = giao của: **(1)** điều kiện hình học `disc≥0` trong
+> `ik_5bar()`, và **(2)** góc servo (sau wrap) phải ≤180° trong `map_servo`. Cả hai chốt
+> tại `move_to()` (trả false → host nhận `ERR,WORKSPACE`).
+
 ---
 
 ## 3. CHỨC NĂNG 2: ĐIỀU KHIỂN ĐỘ CAO – TRỤC Z
@@ -258,10 +288,10 @@ servo_xy_update()  [loop(), mỗi 20ms]:
 |---|---|
 | Động cơ | GA25-370, 12VDC, tỉ số truyền 21.3:1, 280 RPM |
 | Encoder | Hall sensor 2 kênh AB, 11 xung/kênh/vòng |
-| Vít me | Bước vít 2 mm/vòng |
+| Vít me | Bước vít (lead) **8 mm/vòng** |
 | H-bridge | L298N / TB6612FNG |
 | PWM | LEDC 20 kHz, 8-bit (0–255) |
-| Độ phân giải | 11 × 4 × 21.3 / 2.0 ≈ **468.6 xung/mm** |
+| Độ phân giải | 11 × 4 × 21.3 / 8.0 ≈ **117.15 xung/mm** |
 
 ### 3.2 Sơ đồ khối phần mềm – Chức năng 2
 
@@ -269,7 +299,7 @@ servo_xy_update()  [loop(), mỗi 20ms]:
                     ┌──────────────────────────────────────────────┐
                     │              z_axis_update()  (20ms)         │
                     │                                              │
-  Lệnh (mm) ──────► │  target_cnt = z_mm × 468.6                   │
+  Lệnh (mm) ──────► │  target_cnt = z_mm × 117.15                  │
                     │         │                                    │
                     │         ▼                                    │
   Encoder ISR ─────►│  error = target_cnt − enc_pos                │
@@ -315,7 +345,7 @@ enc_pos += QEM[(last_ab << 2) | ab]
 |---|---|---|---|
 | Hệ số tỉ lệ | Kp | 2.5 | Tốc độ tiếp cận đích |
 | Hệ số đạo hàm | Kd | 0.08 | Giảm dao động khi đến đích |
-| Vùng chết | Deadband | ±4 xung | Dừng khi sai số nhỏ (~0.009mm) |
+| Vùng chết | Deadband | ±4 xung | Dừng khi sai số nhỏ (~0.034mm) |
 | PWM tối thiểu | PWM_MIN | 55/255 | Thắng ma sát tĩnh |
 | PWM tối đa | PWM_MAX | 220/255 | Bảo vệ dòng điện |
 | Chu kỳ | T | 20 ms | Tần số vòng lặp PD |
@@ -423,15 +453,15 @@ enc_pos += QEM[(last_ab << 2) | ab]
 
 **Giác hút chân không:**
 - Van điện từ: GPIO 42 (HIGH = hút, LOW = nhả/đẩy)
-- Relay bơm: GPIO 45 (active-LOW theo mặc định) ⚠️ **strapping pin** – xem ghi chú dưới
+- Relay bơm: GPIO 45, **active-HIGH** (`PUMP_RELAY_ACTIVE_HIGH = true`): HIGH=bơm chạy,
+  LOW=tắt ⚠️ **strapping pin** – xem ghi chú dưới
 - Delay nhả bơm: 150ms (xả áp âm trước khi tắt bơm)
 
 > ⚠️ **GPIO45 là chân strapping (VDD_SPI):** lúc cấp nguồn ROM bootloader giữ chân
-> này ở mức LOW (~vài trăm ms). Với relay **active-LOW**, bơm có thể kêu trong khoảng
-> thời gian boot. Firmware gọi `gripper_init()` sớm nhất trong `setup()` để rút ngắn,
-> nhưng phần ROM boot không thể tránh bằng phần mềm. Khắc phục triệt để bằng phần cứng:
-> thêm điện trở **kéo lên (pull-up) 10kΩ** ở chân IN của module relay, hoặc dùng relay
-> **active-HIGH** (đặt `PUMP_RELAY_ACTIVE_HIGH = true`), hoặc đổi sang chân không-strapping.
+> này ở mức nhất định (~vài trăm ms) → bơm có thể kêu nhẹ lúc boot. Firmware gọi
+> `gripper_init()` sớm nhất trong `setup()` để rút ngắn, nhưng phần ROM boot không
+> tránh được bằng phần mềm. Khắc phục triệt để bằng phần cứng (điện trở kéo phù hợp
+> chiều active ở chân IN module relay), hoặc đổi sang chân không-strapping.
 
 ### 4.2 Hệ tọa độ VL53L0X – Nguyên lý homing
 
@@ -500,7 +530,7 @@ enc_pos += QEM[(last_ab << 2) | ab]
 |---       |---           |---    |--- |---               |---                |
 |**INPUT** |lệnh          |enum   | –  | suck/drop        | Từ state machine  |
 |**OUTPUT**|PIN_SUCTION   |digital|42  | HIGH=hút,LOW=nhả | Điều khiển van    |
-|**OUTPUT**|PIN_PUMP_RELAY|digital|45  | active-LOW       | Relay bơm (strap) |
+|**OUTPUT**|PIN_PUMP_RELAY|digital|45  | active-HIGH      | Relay bơm (strap) |
 |**STATE** |_sucking      |bool   | –  | true/false       | Trạng thái nội bộ |
 
 ### 4.5 Flowchart – Homing tức thì (z_home_instant)
@@ -687,11 +717,11 @@ Bước 1: Cấp nguồn
   → homez              [Chuẩn hóa Z bằng VL53L0X, ~105ms]
 
 Bước 2: Đặt vị trí XY lấy hàng
-  → 19,45              [Di chuyển XY đến vị trí lấy]
+  → 27.5,80            [Di chuyển XY đến vị trí lấy (trong workspace)]
   → teachpick          [Hạ Z tự động đến bề mặt, ghi pick_z]
 
 Bước 3: Đặt vị trí XY đặt hàng
-  → 34,45              [Di chuyển XY đến vị trí đặt]
+  → 42.5,80            [Di chuyển XY đến vị trí đặt]
   → teachplace         [Hạ Z tự động đến bề mặt, ghi place_z]
 
 Bước 4: Xác nhận thông số
@@ -708,12 +738,17 @@ Bước 5: Thực hiện
 
 | Thông số | File cài đặt | Giá trị | Ý nghĩa |
 |---|---|---|---|
-| L0, L1–L4 | ik_5bar.h | 38, 50 mm | Chiều dài các khâu |
-| Servo offset | main.cpp | 0° | Hiệu chỉnh góc lắp đặt |
+| L0 | ik_5bar.h | 55 mm | Khoảng cách 2 trục động cơ |
+| L1, L4 | ik_5bar.h | 70 mm | Khâu gần (nối động cơ) |
+| L2, L3 | ik_5bar.h | 130 mm | Khâu xa (nối đầu công tác) |
+| HOME (X,Y) | main.cpp | (27.5, 80) mm | Vị trí home (giữa 2 ĐC, trong workspace) |
+| Servo offset 1/2 | main.cpp | −45° / +45° | Hiệu chỉnh góc lắp đặt (PHẢI khớp web `SV*_OFF`) |
+| Servo invert 2 | main.cpp | false | Đảo chiều servo 2 (lắp đối xứng) |
 | Servo speed | main.cpp | 150 °/s | Tốc độ góc tối đa khi nội suy XY |
 | Servo XY tick | main.cpp | 20 ms | Chu kỳ cập nhật nội suy servo |
 | Z gear ratio | z_axis.h | 21.3 | Tỉ số truyền hộp số |
-| Z screw pitch | z_axis.h | 2.0 mm | Bước vít me |
+| Z screw pitch | z_axis.h | 8.0 mm | Bước vít me (lead) |
+| Z pulses/mm | z_axis.h | ≈117.15 | 11×4×21.3/8.0 |
 | Z_MAX_MM | z_axis.h | 50 mm | Hành trình tối đa |
 | Kp, Kd | z_axis.h | 2.5, 0.08 | Hệ số PD controller |
 | Sensor offset | z_home.h | 8 mm | Khoảng cách VL53L0X–đầu hút |
@@ -722,6 +757,7 @@ Bước 5: Thực hiện
 | Grip time | main.cpp | 400 ms | Thời gian bám giác hút |
 | Drop time | main.cpp | 300 ms | Thời gian nhả vật |
 | Pump delay | gripper.h | 150 ms | Delay tắt bơm sau mở van |
+| Pump relay | gripper.h | active-HIGH | `PUMP_RELAY_ACTIVE_HIGH=true` |
 
 ---
 
@@ -732,11 +768,14 @@ GUI/PC/MCU điều khiển tin cậy. Hai đường chạy **song song**: dòng 
 được định tuyến sang bộ giải mã giao thức (`proto_handle()`), còn lại vào `process()`.
 
 ```
-Host -> ESP :  $<seq>,<CMD>,<arg...>*<CC>      vd: $1,MOVE,19.0,45.0*05
+Host -> ESP :  $<seq>,<CMD>,<arg...>*<CC>      vd: $1,MOVE,27.5,80.0*05
 ESP  -> Host:  #<seq>,OK|ERR,...*<CC>          ACK/NAK (echo seq để khớp lệnh)
-               @<STATE>,X,Y,Z,GRIP,DIST,...*CC telemetry định kỳ (lệnh TLM)
+               @<STATE>,X,Y,Z,GRIP,DIST,XYMV,ZMV,LIM,S1,S2*CC  telemetry định kỳ
                !<EV>,...*<CC>                  sự kiện bất đồng bộ (đổi state…)
 ```
+
+> Telemetry có thêm **S1, S2** = góc servo thật (0–180°) đang gửi tới động cơ → web dùng
+> để hiển thị góc + vẽ cơ cấu theo động học thuận.
 
 - **`<CC>`** = XOR (2 hex) mọi byte giữa marker đầu và `*` (kiểu NMEA). Chiều
   Host→ESP có thể bỏ `*CC` (tiện gõ tay); ESP kiểm tra khi có và trả `ERR,CRC` nếu sai.
@@ -749,3 +788,78 @@ ESP  -> Host:  #<seq>,OK|ERR,...*<CC>          ACK/NAK (echo seq để khớp l�
 | Cấu hình PP | `PICK, PLACE, SAFEZ, SETTLE, GRIPMS, DROPMS, RUN` |
 | Homing/Teach | `HOMEZ, HOMEZS, HOMETOP, TEACHPICK, TEACHPLACE` |
 | Thủ công | `MOVE, HOME, DEMO, Z, ZR, ZSTOP, ZZERO, SUCK, DROP, PUMP` |
+
+---
+
+## 8. GIAO DIỆN ĐIỀU KHIỂN TRÊN WEB (HMI)
+
+File `hmi/index.html` là một **giao diện điều khiển chạy thẳng trên trình duyệt**, kết nối
+ESP32 qua **Web Serial API** (không cần cài đặt, không cần server). Mở bằng **Microsoft
+Edge** hoặc **Google Chrome** (Firefox không hỗ trợ Web Serial).
+
+### 8.1 Kiến trúc
+
+```
+┌─────────────────────────┐   Web Serial (USB-CDC, 115200)   ┌──────────────┐
+│   Trình duyệt (HMI)     │ ◄──────────────────────────────► │   ESP32-S3   │
+│                         │   $seq,CMD,..*CC   /   #,@,!      │  (firmware)  │
+│  • Gửi khung lệnh       │ ───────────────────────────────► │              │
+│  • Đọc ACK/telemetry/EV │ ◄─────────────────────────────── │              │
+│  • Vẽ trạng thái + sơ đồ│                                  └──────────────┘
+└─────────────────────────┘
+```
+
+- Dùng **đúng giao thức khung + checksum** ở mục 7 (`send()` tự thêm `seq` và `*CC`).
+- Khi kết nối, HMI tự gửi `VER`, bật sự kiện `EVENTS,1`, và bật telemetry `TLM,200`
+  (stream mỗi 200ms). Có watchdog báo nếu mở COM nhưng không nhận được dữ liệu.
+
+### 8.2 Bảng trạng thái (đọc từ telemetry)
+
+| Mục hiển thị | Nguồn (telemetry) | Ghi chú |
+|---|---|---|
+| X, Y (mm) | X, Y | Tọa độ đầu công tác (lệnh) |
+| Z (mm) | Z | Vị trí trục Z |
+| VL53L0X (mm) | DIST | Khoảng cách cảm biến (−1 = lỗi) |
+| Động cơ 1 / 2 (°) | S1, S2 | **Góc servo thật** đang gửi động cơ |
+| X / Y từ servo (mm) | tính từ S1,S2 | Động học **thuận** (kiểm tra khớp X/Y) |
+| State P&P | STATE | IDLE / PICK_* / PLACE_* … |
+| Đèn báo | GRIP, LIM, XYMV, ZMV | Giác hút/Bơm, giới hạn trên, XY chạy, Z chạy |
+
+- **Sơ đồ cơ cấu (canvas):** vẽ 5 khâu **từ góc servo thật** (S1,S2) → đảo offset
+  (`servoToTheta`) ra góc hình học → động học thuận (giao 2 đường tròn `circInt`) ra
+  đầu công tác. Có đánh dấu điểm pick (P) và place (D).
+- **Quan trọng:** hằng số `SV1_OFF/SV2_OFF` trong web **phải bằng** `SERVO*_OFFSET`
+  của firmware, nếu không hình + "X/Y từ servo" sẽ lệch.
+
+### 8.3 Khối điều khiển (gửi lệnh xuống ESP32)
+
+| Khu vực | Nút / thao tác | Lệnh gửi |
+|---|---|---|
+| **Jog XY** | bước nhảy 0.5/1/5/10 mm + pad X±/Y± + HOME | `MOVE x,y` / `HOME` |
+| | ô X,Y + GO | `MOVE x,y` |
+| | phím mũi tên ← → ↑ ↓ | jog XY (tương đương pad) |
+| **Trục Z** | bước 0.5/2/5 + Z▲/Z▼ | `ZR ±step` |
+| | ô Z tuyệt đối + GO | `Z mm` |
+| | Z STOP / Z = 0 | `ZSTOP` / `ZZERO` |
+| | PageUp / PageDown | jog Z |
+| **Giác hút / Bơm** | HÚT / NHẢ | `SUCK` / `DROP` |
+| | BẬT BƠM / TẮT BƠM | `PUMP 1` / `PUMP 0` |
+| **Homing/Teach** | HOMEZ / HOMEZ chậm / HOME ĐỈNH | `HOMEZ` / `HOMEZS` / `HOMETOP` |
+| | TEACH pick / place / Đọc PPINFO | `TEACHPICK` / `TEACHPLACE` / `PPINFO` |
+| **Pick & Place** | nhập pick/place (x,y,z) + SET | `PICK` / `PLACE` |
+| | SafeZ/Settle/Grip/Drop + ÁP DỤNG | `SAFEZ/SETTLE/GRIPMS/DROPMS` |
+| | ▶ RUN / ■ ABORT | `RUN` / `ABORT` |
+| **E-STOP** (nút đỏ lớn) | dừng khẩn cấp | `ABORT` |
+
+### 8.4 Console
+
+Khung console cuối trang log mọi khung gửi/nhận (TX màu xanh, ACK xanh lá, lỗi đỏ,
+telemetry xám, sự kiện vàng) – tiện debug giao thức và theo dõi phản hồi robot.
+
+### 8.5 Lưu ý vận hành
+
+- Mỗi lần đổi offset servo ở firmware → **đổi luôn `SV*_OFF` trong `index.html`** cho khớp.
+- Telemetry dùng giá trị DIST cache khi Pick&Place đang chạy (tránh đọc VL53L0X 33ms gây
+  trễ vòng PID trục Z).
+- Web **không tự giới hạn** vùng làm việc; mọi điểm được gửi xuống, firmware quyết định
+  hợp lệ hay trả `ERR,WORKSPACE`.

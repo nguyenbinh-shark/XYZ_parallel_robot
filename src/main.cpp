@@ -32,17 +32,20 @@
 /* Chu ky cap nhat noi suy servo (ms) – trung khop nhip servo 50Hz (20ms) */
 #define SERVO_XY_INTERVAL_MS  20
 
-/* Hieu chinh offset lap dat (do): chinh neu robot bi lech sau khi lap  */
-#define SERVO1_OFFSET  -45.0f    /* Servo GPIO48: +45 do */
-#define SERVO2_OFFSET  +45.0f    /* Servo GPIO47: -45 do */
+/* Hieu chinh offset lap dat (do): PHAI khop voi cach lap coi servo thuc te
+   VA voi SV1_OFF/SV2_OFF trong hmi/index.html. Hien dang dung -45/+45.      */
+#define SERVO1_OFFSET  -45.0f    /* Servo GPIO48 */
+#define SERVO2_OFFSET  +45.0f    /* Servo GPIO47 */
 
 /* Motor 2 cung chieu Motor 1 (SERVO2_INVERT = false)                   */
 #define SERVO2_INVERT   false
 
 /* ---------- Vi tri Home ---------- */
-/* Trung diem 2 motor, du cao de khong va cham thanh A-C                */
-#define HOME_X  (IK_L0 * 0.5f)   /* 19.0 mm */
-#define HOME_Y  45.0f
+/* Trung diem 2 motor (X=27.5), Y du cao de NAM TRONG vung lam viec:
+   vung chet ban kinh |L2-L1|=60mm quanh moi dong co -> tai tam X=27.5
+   can Y >= ~53mm. Chon 80mm + margin cho demo (HOME +/-10).            */
+#define HOME_X  (IK_L0 * 0.5f)   /* 27.5 mm */
+#define HOME_Y  80.0f
 
 /* =================================================================== */
 
@@ -285,21 +288,32 @@ static inline float reverse_dir(float angle)
     return 180.0f - angle;
 }
 
+/* Chuan hoa goc ve [0, 360). IK (atan/atan2) co the tra goc lech +/-360
+   -> phai wrap truoc khi so [0,180], neu khong se bi "qua gioi han ao".  */
+static inline float wrap360(float a)
+{
+    a = fmodf(a, 360.0f);
+    if (a < 0.0f) a += 360.0f;
+    return a;
+}
+
 /* ------------------------------------------------------------------
    map_servo1/2: doi goc IK (do, CCW) sang goc vat ly servo (CW).
-   Tra ve -1.0f neu goc nam ngoai [0, 180].
+   Wrap ve [0,360) roi chap nhan neu <= 180; nguoc lai (180..360) la
+   that su ngoai hanh trinh servo -> tra -1.
    ------------------------------------------------------------------ */
 static float map_servo1(float theta)
 {
-    float a = reverse_dir(theta + SERVO1_OFFSET);
-    return (a >= 0.0f && a <= 180.0f) ? a : -1.0f;
+    float a = wrap360(reverse_dir(theta + SERVO1_OFFSET));
+    return (a <= 180.0f) ? a : -1.0f;
 }
 
 static float map_servo2(float theta)
 {
     float a = reverse_dir(theta + SERVO2_OFFSET);
     if (SERVO2_INVERT) a = 180.0f - a;   /* truong hop servo 2 lap doi xung */
-    return (a >= 0.0f && a <= 180.0f) ? a : -1.0f;
+    a = wrap360(a);
+    return (a <= 180.0f) ? a : -1.0f;
 }
 
 /* ------------------------------------------------------------------
@@ -519,12 +533,13 @@ static void proto_err(const String &seq, const char *code, const char *msg = nul
    doc VL53L0X (33ms) – tranh lam tre vong PID truc Z.                   */
 static String tlm_body()
 {
-    char buf[88];
-    snprintf(buf, sizeof(buf), "%s,%.1f,%.1f,%.2f,%d,%d,%d,%d,%d",
+    char buf[104];
+    /* STATE,X,Y,Z,GRIP,DIST,XYMV,ZMV,LIM,S1,S2  (S1/S2 = goc servo hien tai) */
+    snprintf(buf, sizeof(buf), "%s,%.1f,%.1f,%.2f,%d,%d,%d,%d,%d,%d,%d",
              pp_state_name(), cur_x, cur_y, z_axis_get_pos_mm(),
              gripper_is_sucking() ? 1 : 0, (int)oled_dist,
              xy_is_moving() ? 1 : 0, z_axis_is_moving() ? 1 : 0,
-             z_limit_top_triggered() ? 1 : 0);
+             z_limit_top_triggered() ? 1 : 0, cur_a1, cur_a2);
     return String(buf);
 }
 
@@ -785,8 +800,11 @@ static void process(const String &cmd)
         return;
     }
     if (cmd == "lim?") {
-        Serial.printf("[LIM] Gioi han tren: %s\n",
-                      z_limit_top_triggered() ? "NHAN" : "tha");
+        int raw = digitalRead(Z_LIMIT_TOP);
+        Serial.printf("[LIM] Gioi han tren: %s  (GPIO%d raw=%s, active=%s)\n",
+                      z_limit_top_triggered() ? "NHAN" : "tha",
+                      Z_LIMIT_TOP, raw ? "HIGH" : "LOW",
+                      Z_LIMIT_TOP_ACTIVE_LOW ? "LOW" : "HIGH");
         return;
     }
     if (cmd == "teachpick") {
@@ -886,8 +904,22 @@ static void process(const String &cmd)
     if (cmd == "z0")    { z_axis_set_zero(); return; }
     if (cmd == "zstop") { z_axis_stop();     return; }
     if (cmd == "zpos") {
-        Serial.printf("[Z] %.2f mm  |  %s\n",
-                      z_axis_get_pos_mm(), z_axis_is_moving() ? "dang di" : "dung");
+        Serial.printf("[Z] %.2f mm  |  %ld xung  |  %s  |  lim_top=%s\n",
+                      z_axis_get_pos_mm(), (long)z_axis_get_enc_cnt(),
+                      z_axis_is_moving() ? "dang di" : "dung",
+                      z_limit_top_triggered() ? "NHAN" : "tha");
+        return;
+    }
+    if (cmd == "zenc") {   /* doc encoder tho – debug chuan/chieu */
+        Serial.printf("[Z] enc=%ld xung  pos=%.3f mm\n",
+                      (long)z_axis_get_enc_cnt(), z_axis_get_pos_mm());
+        return;
+    }
+    if (cmd.startsWith("zraw ")) {   /* chay PWM truc tiep, bo qua PID/gioi han */
+        int16_t pwm = (int16_t)cmd.substring(5).toInt();
+        z_axis_raw_pwm(pwm);
+        Serial.printf("[Z] RAW PWM=%d (go 'zstop' de dung). enc=%ld\n",
+                      pwm, (long)z_axis_get_enc_cnt());
         return;
     }
     if (cmd.startsWith("z")) {
@@ -950,8 +982,9 @@ void setup()  /* oled_ms / oled_dist khai bao o dau file */
     s2.write(cur_a2);
 
     Serial.println("\n=== 5-Bar Parallel Robot (ESP32-S3) ===");
-    Serial.printf("L0=%.0f  L1=L2=L3=L4=%.0f mm\n",
-                  (float)IK_L0, (float)IK_L1);
+    Serial.printf("L0=%.0f  L1=%.0f L2=%.0f L3=%.0f L4=%.0f mm\n",
+                  (float)IK_L0, (float)IK_L1, (float)IK_L2,
+                  (float)IK_L3, (float)IK_L4);
     Serial.printf("Home: (%.1f, %.1f) mm\n", (float)HOME_X, (float)HOME_Y);
 
     vl53l0x_init();   /* VL53L0X tuy chon – chi in canh bao neu khong co */

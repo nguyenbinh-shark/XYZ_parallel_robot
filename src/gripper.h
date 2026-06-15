@@ -12,7 +12,7 @@
 
 /* true  : relay kich hoat muc HIGH (relay active-high)
    false : relay kich hoat muc LOW  (relay active-low, pho bien hon)   */
-#define PUMP_RELAY_ACTIVE_HIGH  false
+#define PUMP_RELAY_ACTIVE_HIGH  true
 
 /* Delay xa ap am (ms) – dung bom sau khi da mo van de loc khi vao */
 #define GRIPPER_RELEASE_PUMP_DELAY_MS  150

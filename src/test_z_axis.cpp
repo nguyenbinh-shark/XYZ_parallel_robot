@@ -60,10 +60,13 @@ static void print_help()
 
 static void print_pos()
 {
-    Serial.printf("[POS] %.3f mm  |  %ld xung  |  %s\n",
+    int raw = digitalRead(Z_LIMIT_TOP);
+    Serial.printf("[POS] %.3f mm  |  %ld xung  |  %s  |  lim_top=%s (GPIO%d raw=%s)\n",
                   z_axis_get_pos_mm(),
                   (long)z_axis_get_enc_cnt(),
-                  z_axis_is_moving() ? "dang di" : "dung");
+                  z_axis_is_moving() ? "dang di" : "dung",
+                  z_limit_top_triggered() ? "NHAN" : "tha",
+                  Z_LIMIT_TOP, raw ? "HIGH" : "LOW");
 }
 
 static void process_command(String cmd)

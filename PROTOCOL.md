@@ -107,7 +107,7 @@ Ví dụ `body = "1,MOVE,19.0,45.0"` → `*05` → gửi `$1,MOVE,19.0,45.0*05`.
 
 ### Khung telemetry
 ```
-@<STATE>,<X>,<Y>,<Z>,<GRIP>,<DIST>,<XYMV>,<ZMV>,<LIM>*<CC>
+@<STATE>,<X>,<Y>,<Z>,<GRIP>,<DIST>,<XYMV>,<ZMV>,<LIM>,<S1>,<S2>*<CC>
 ```
 | Trường | Kiểu | Ý nghĩa |
 |---|---|---|
@@ -119,8 +119,9 @@ Ví dụ `body = "1,MOVE,19.0,45.0"` → `*05` → gửi `$1,MOVE,19.0,45.0*05`.
 | XYMV | 0/1 | 1 = servo XY đang nội suy |
 | ZMV | 0/1 | 1 = trục Z đang chạy |
 | LIM | 0/1 | 1 = công tắc giới hạn trên đang bị nhấn |
+| S1, S2 | độ | Góc servo (động cơ) 1 & 2 hiện tại (0–180) |
 
-Ví dụ: `@IDLE,19.0,45.0,12.30,0,142,0,0,0*14`
+Ví dụ: `@IDLE,19.0,45.0,12.30,0,142,0,0,0,93,87*14`
 
 ### Sự kiện (bật bằng `EVENTS,1` hoặc tự bật khi host gửi khung `$` đầu tiên)
 | Khung | Khi nào |

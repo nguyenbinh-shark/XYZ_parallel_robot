@@ -16,8 +16,8 @@
    Day motor: C1 -> GPIO11 (kenh A),  C2 -> GPIO10 (kenh B).
    Neu Z dem NGUOC chieu (PID chay loan) -> hoan doi 2 chan nay
    HOAC dao IN1/IN2, mot trong hai la du.                              */
-#define Z_ENC_A       11   /* C1 */
-#define Z_ENC_B       10   /* C2 */
+#define Z_ENC_A       10   /* C1 */
+#define Z_ENC_B       11   /* C2 */
 
 /* --- Cong tac hanh trinh GIOI HAN TREN (end-stop) ---
    Noi GND + dung INPUT_PULLUP -> active-LOW (nhan = muc LOW).
@@ -34,15 +34,15 @@
    Pitch  : buoc vit me (mm / vong truc ra)  – chinh theo vit thuc te  */
 #define Z_ENC_PPR       11
 #define Z_GEAR_RATIO    21.3f
-#define Z_SCREW_PITCH   8.0f    /* vit me lead 8mm/vong */
+#define Z_SCREW_PITCH   2.0f    /* vit me lead 8mm/vong */
 
 /* Xung/mm trong che do 4x quadrature:
    PPR * 4 * Gear / Pitch  =  11 * 4 * 21.3 / 8.0  ~= 117.15 xung/mm  */
 #define Z_PULSE_PER_MM  ((Z_ENC_PPR * 4.0f * Z_GEAR_RATIO) / Z_SCREW_PITCH)
 
 /* --- Gioi han hanh trinh (mm) – chinh theo chieu dai vit me thuc te --- */
-#define Z_MIN_MM    0.0f
-#define Z_MAX_MM   50.0f
+#define Z_MIN_MM    -100.0f
+#define Z_MAX_MM   100.0f
 
 /* --- Bo dieu khien PD --- */
 #define Z_KP              2.5f   /* He so ty le                              */
