@@ -28,5 +28,28 @@ int16_t vl53l0x_read_mm();
  * Lay trung binh n lan do (delay 35ms giua moi lan).
  * Dung cho homing / teach can ket qua on dinh.
  * BLOCKING: n * 35ms tong cong.
+ * Luu y: trung binh NHAY voi gai nhieu (spike) – uu tien dung read_median().
  */
 int16_t vl53l0x_read_avg(uint8_t n = 3);
+
+/*
+ * MEDIAN cua n lan do nhanh (mac dinh 5) – LOAI BO gai nhieu xung (spike).
+ * Tot nhat cho do tai vi tri CO DINH (homing, teach, do tim vat khi nhat,
+ * kiem tra giac hut) vi trung vi bo qua cac gia tri nhay bat thuong.
+ * BLOCKING ~ n * 33ms. Tra ve -1 neu khong co lan do nao hop le.
+ */
+int16_t vl53l0x_read_median(uint8_t n = 5);
+
+/*
+ * Doc co LOC TRANG THAI (goi LAP LAI, vi du OLED / giam sat lien tuc):
+ *   median 3 mau gan nhat (loai spike) -> trung binh truot EMA (lam muot).
+ * Moi lan goi chi 1 phep do (~33ms). Tra ve mm da loc, hoac -1 khi chua co.
+ * Mat tin hieu (-1) tam thoi -> giu gia tri da loc truoc do.
+ */
+int16_t vl53l0x_read_filtered();
+
+/*
+ * Xoa trang thai bo loc (median window + EMA). Goi khi chuyen ngu canh de
+ * tranh dung gia tri cu (vi du sau khi ket thuc mot chu trinh van chuyen).
+ */
+void    vl53l0x_filter_reset();

@@ -1,10 +1,12 @@
 #include "gripper.h"
 
 static bool _sucking = false;
+static bool _pump_on = false;   /* trang thai relay bom (chong goi lap + spam) */
 
 /* --- Noi bo: dat relay bom theo logic kich hoat da cau hinh --- */
 static inline void pump_set(bool on)
 {
+    _pump_on = on;
     bool level = PUMP_RELAY_ACTIVE_HIGH ? on : !on;
     digitalWrite(PIN_PUMP_RELAY, level ? HIGH : LOW);
 }
@@ -50,12 +52,14 @@ void gripper_valve_open()
 
 void gripper_pump_on()
 {
+    if (_pump_on) return;   /* da bat roi -> idempotent, khong spam log */
     pump_set(true);
     Serial.println("[GRIP] BOM ON");
 }
 
 void gripper_pump_off()
 {
+    if (!_pump_on) return;  /* da tat roi -> idempotent, khong spam log */
     pump_set(false);
     Serial.println("[GRIP] BOM OFF");
 }

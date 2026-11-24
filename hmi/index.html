@@ -169,6 +169,23 @@
       </fieldset>
 
       <fieldset>
+        <legend>Test nhanh — 4 diem A B C D</legend>
+        <div class="grid2">
+          <button class="btn sm" id="tpC">C (−20, 140)</button>
+          <button class="btn sm" id="tpB">B (110, 140)</button>
+          <button class="btn sm" id="tpD">D (−15, 90)</button>
+          <button class="btn sm" id="tpA">A (100, 90)</button>
+        </div>
+        <div class="row" style="margin-top:8px;align-items:center">
+          <div><label class="f">Dung moi diem (ms)</label><input id="tSettle" value="500"></div>
+          <label style="flex:none;font-size:12px;color:var(--dim);display:flex;align-items:center;gap:5px;padding-bottom:2px">
+            <input type="checkbox" id="ckTestLoop" style="width:auto"> Lap lai
+          </label>
+        </div>
+        <button class="btn acc" id="tpRun" style="margin-top:8px">▶ CHAY A → B → C → D</button>
+      </fieldset>
+
+      <fieldset>
         <legend>Truc Z</legend>
         <div class="seg" id="segZ" style="margin-bottom:8px">
           <button class="btn" data-s="0.5">0.5</button>
@@ -200,14 +217,9 @@
       </fieldset>
 
       <fieldset>
-        <legend>Homing / Teach</legend>
+        <legend>Homing</legend>
         <div class="grid3">
-          <button class="btn sm" id="hHomez">HOMEZ</button>
-          <button class="btn sm" id="hSlow">HOMEZ chậm</button>
           <button class="btn sm" id="hTop">HOME ĐỈNH</button>
-          <button class="btn sm" id="tPick">TEACH pick</button>
-          <button class="btn sm" id="tPlace">TEACH place</button>
-          <button class="btn sm" id="qPP">Đọc PPINFO</button>
         </div>
       </fieldset>
     </div>
@@ -218,20 +230,34 @@
     <div class="ph">Pick &amp; Place</div>
     <div class="pb">
       <fieldset>
-        <legend>Vi tri LAY (pick)</legend>
+        <legend>Vi tri LAY (pick) — diem dau</legend>
         <div class="grid3">
           <div><label class="f">X</label><input id="pkX" value="27.5"></div>
           <div><label class="f">Y</label><input id="pkY" value="80"></div>
           <div><label class="f">Z</label><input id="pkZ" value="5"></div>
         </div>
+        <label class="f">Nhap nhanh X,Y</label>
+        <div class="seg">
+          <button class="btn" data-pk="A">A</button>
+          <button class="btn" data-pk="B">B</button>
+          <button class="btn" data-pk="C">C</button>
+          <button class="btn" data-pk="D">D</button>
+        </div>
         <button class="btn sm acc" id="setPick" style="margin-top:8px">SET PICK</button>
       </fieldset>
       <fieldset>
-        <legend>Vi tri DAT (place)</legend>
+        <legend>Vi tri DAT (place) — diem cuoi</legend>
         <div class="grid3">
           <div><label class="f">X</label><input id="plX" value="42.5"></div>
           <div><label class="f">Y</label><input id="plY" value="80"></div>
           <div><label class="f">Z</label><input id="plZ" value="5"></div>
+        </div>
+        <label class="f">Nhap nhanh X,Y</label>
+        <div class="seg">
+          <button class="btn" data-pl="A">A</button>
+          <button class="btn" data-pl="B">B</button>
+          <button class="btn" data-pl="C">C</button>
+          <button class="btn" data-pl="D">D</button>
         </div>
         <button class="btn sm acc" id="setPlace" style="margin-top:8px">SET PLACE</button>
       </fieldset>
@@ -289,12 +315,17 @@ let port=null, reader=null, writer=null, keepReading=false, connected=false;
 let readLoopDone=null;
 let seq=0;
 let gotRx=false, lastRxMs=0;
+let lastAck=null;
 const enc=new TextEncoder();
 const $=id=>document.getElementById(id);
 
 const st={name:'IDLE',x:19,y:45,z:0,grip:0,dist:-1,xymv:0,zmv:0,lim:0,s1:null,s2:null};
 const pickMk={x:null,y:null}, placeMk={x:null,y:null};
 let jogXY=5, jogZ=2;
+/* 4 diem test nhanh – bam de di chuyen vat qua tung diem */
+const TESTPTS=[{name:'A',x:100,y:90},{name:'B',x:110,y:140},{name:'C',x:-20,y:140},{name:'D',x:-15,y:90}];
+let testRunning=false;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* ---------- checksum XOR (NMEA) ---------- */
 function cc(body){let x=0;for(let i=0;i<body.length;i++)x^=body.charCodeAt(i);
@@ -307,12 +338,13 @@ function log(msg,cls){const c=$('console');const d=document.createElement('div')
 
 /* ---------- gui lenh ---------- */
 async function send(cmd,...args){
-  if(!connected){log('! Chua ket noi COM','warn');return;}
-  seq=(seq+1)%10000;
-  let body=seq+','+cmd; if(args.length) body+=','+args.join(',');
+  if(!connected){log('! Chua ket noi COM','warn');return null;}
+  seq=(seq+1)%10000; const mySeq=seq;
+  let body=mySeq+','+cmd; if(args.length) body+=','+args.join(',');
   const line='$'+body+'*'+cc(body)+'\r\n';
   try{await writer.write(enc.encode(line));log('» '+line.trim(),'tx');}
   catch(e){log('TX error: '+e,'err');}
+  return mySeq;
 }
 
 /* ---------- ket noi / ngat ---------- */
@@ -342,7 +374,7 @@ async function disconnect(){
   try{if(readLoopDone)await readLoopDone;}catch(e){}  /* doi loop tra lock */
   try{if(writer){await writer.close();}writer&&writer.releaseLock();}catch(e){}
   try{if(port)await port.close();}catch(e){}
-  port=reader=writer=null; readLoopDone=null; connected=false; setConnUI(false);
+  port=reader=writer=null; readLoopDone=null; connected=false; testRunning=false; setConnUI(false);
   log('— Da ngat ket noi','warn');
 }
 function setConnUI(on){
@@ -387,6 +419,7 @@ function handleLine(line){
 }
 function handleAck(body,ok){
   const f=body.split(',');
+  lastAck={seq:+f[0], ok:f[1]==='OK', raw:body};
   const lr=$('lastReply'); lr.textContent='« '+body;
   lr.style.color = (f[1]==='OK') ? 'var(--grn)' : 'var(--red)';
   if(f[1]==='OK'){
@@ -476,6 +509,13 @@ function draw(){
   CTX.strokeStyle='#10202c';CTX.lineWidth=1;
   for(let g=-20;g<=70;g+=10){CTX.beginPath();CTX.moveTo(sx(g),sy(MY0));CTX.lineTo(sx(g),sy(MY0+MYS));CTX.stroke();}
   for(let g=0;g<=95;g+=10){CTX.beginPath();CTX.moveTo(sx(MX0),sy(g));CTX.lineTo(sx(MX0+MXS),sy(g));CTX.stroke();}
+  /* 4 diem test nhanh */
+  CTX.font='bold 10px Consolas';
+  for(const p of TESTPTS){
+    CTX.beginPath();CTX.arc(sx(p.x),sy(p.y),5,0,7);
+    CTX.strokeStyle='#ffb02099';CTX.lineWidth=1.5;CTX.stroke();
+    CTX.fillStyle='#ffb020';CTX.fillText(p.name,sx(p.x)+7,sy(p.y)+4);
+  }
   /* truc nen A-C */
   const A={x:0,y:0}, C={x:L0,y:0};
   line(A.x,A.y,C.x,C.y,'#2a3744',3);
@@ -528,7 +568,7 @@ function label(mx,my,t){CTX.fillStyle='#cdd9e5';CTX.font='bold 11px Consolas';CT
    GAN SU KIEN
    =================================================================== */
 $('btnConn').onclick=()=>connected?disconnect():connect();
-$('btnEstop').onclick=()=>{send('ABORT');};
+$('btnEstop').onclick=()=>{testRunning=false;setTestBtn(false);send('ABORT');};
 $('btnClear').onclick=()=>{$('console').innerHTML='';};
 
 /* segment buoc nhay */
@@ -546,6 +586,48 @@ $('jYm').onclick=()=>send('MOVE',f2(st.x),f2(st.y-jogXY));
 $('jHome').onclick=()=>send('HOME');
 $('goXY').onclick=()=>send('MOVE',$('goX').value,$('goY').value);
 
+/* ---------- test nhanh 4 diem (A -> B -> C -> D) ---------- */
+/* cho ACK cua dung 1 lenh (theo seq) */
+function waitAck(sq,ms=3000){return new Promise(res=>{const t0=Date.now();
+  const iv=setInterval(()=>{
+    if(lastAck&&lastAck.seq===sq){clearInterval(iv);res(lastAck);}
+    else if(Date.now()-t0>ms){clearInterval(iv);res(null);}
+  },30);});}
+/* di chuyen toi 1 diem roi cho servo XY dung han */
+async function testMoveTo(p){
+  log('  → '+p.name+' ('+p.x+', '+p.y+')','tx');
+  const sq=await send('MOVE',p.x,p.y);
+  const ack=await waitAck(sq);
+  if(ack&&!ack.ok){log('  ✖ '+p.name+' bi tu choi: '+ack.raw,'err');return false;}
+  await sleep(350);                                    /* cho servo bat dau noi suy */
+  const t0=Date.now();
+  while(st.xymv&&Date.now()-t0<9000) await sleep(80);  /* cho XY noi suy xong (XYMV=0) */
+  await sleep(Math.max(0,+$('tSettle').value||0));     /* dung tai diem */
+  return true;
+}
+function setTestBtn(run){const b=$('tpRun');
+  b.textContent=run?'■ DUNG TEST':'▶ CHAY A → B → C → D';
+  b.classList.toggle('warn',run);b.classList.toggle('acc',!run);}
+async function runTestSeq(){
+  if(testRunning){testRunning=false;return;}            /* bam lan 2 = dung */
+  if(!connected){log('! Chua ket noi COM','warn');return;}
+  testRunning=true; setTestBtn(true);
+  log('▶ Test nhanh: A → B → C → D'+($('ckTestLoop').checked?' (lap lai)':''),'ack');
+  do{
+    for(const p of TESTPTS){
+      if(!testRunning||!connected)break;
+      if(!await testMoveTo(p)){testRunning=false;break;}
+    }
+  }while(testRunning&&connected&&$('ckTestLoop').checked);
+  testRunning=false; setTestBtn(false);
+  log('■ Test nhanh ket thuc','warn');
+}
+$('tpRun').onclick=runTestSeq;
+$('tpA').onclick=()=>send('MOVE',100,90);
+$('tpB').onclick=()=>send('MOVE',110,140);
+$('tpC').onclick=()=>send('MOVE',-20,140);
+$('tpD').onclick=()=>send('MOVE',-15,90);
+
 /* Z */
 $('zUp').onclick=()=>send('ZR',jogZ);
 $('zDn').onclick=()=>send('ZR',-jogZ);
@@ -560,22 +642,23 @@ $('pOn').onclick=()=>send('PUMP',1);
 $('pOff').onclick=()=>send('PUMP',0);
 
 /* homing */
-$('hHomez').onclick=()=>send('HOMEZ');
-$('hSlow').onclick=()=>send('HOMEZS');
 $('hTop').onclick=()=>send('HOMETOP');
-$('tPick').onclick=()=>send('TEACHPICK');
-$('tPlace').onclick=()=>send('TEACHPLACE');
-$('qPP').onclick=()=>send('PPINFO');
 
 /* pick & place */
 $('setPick').onclick=()=>{send('PICK',$('pkX').value,$('pkY').value,$('pkZ').value);
   pickMk.x=+$('pkX').value;pickMk.y=+$('pkY').value;draw();};
 $('setPlace').onclick=()=>{send('PLACE',$('plX').value,$('plY').value,$('plZ').value);
   placeMk.x=+$('plX').value;placeMk.y=+$('plY').value;draw();};
+/* nhap nhanh toa do A/B/C/D vao pick (diem dau) / place (diem cuoi) */
+const TP=name=>TESTPTS.find(p=>p.name===name);
+document.querySelectorAll('[data-pk]').forEach(b=>b.onclick=()=>{const p=TP(b.dataset.pk);
+  $('pkX').value=p.x;$('pkY').value=p.y;});
+document.querySelectorAll('[data-pl]').forEach(b=>b.onclick=()=>{const p=TP(b.dataset.pl);
+  $('plX').value=p.x;$('plY').value=p.y;});
 $('setParams').onclick=()=>{send('SAFEZ',$('pSafe').value);send('SETTLE',$('pSettle').value);
   send('GRIPMS',$('pGrip').value);send('DROPMS',$('pDrop').value);};
 $('btnRun').onclick=()=>send('RUN');
-$('btnAbort').onclick=()=>send('ABORT');
+$('btnAbort').onclick=()=>{testRunning=false;setTestBtn(false);send('ABORT');};
 
 /* phim mui ten = jog XY, PageUp/Down = jog Z */
 document.addEventListener('keydown',e=>{

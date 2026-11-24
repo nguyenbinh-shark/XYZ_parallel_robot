@@ -17,15 +17,21 @@ static ZHState  _state    = ZHState::IDLE;
 static bool     _is_teach = false;      /* false = homing, true = teach */
 static float   *_teach_out = nullptr;   /* con tro luu ket qua teach    */
 
-/* Homing ve gioi han tren (cong tac) – co che rieng (raw PWM + cong tac) */
-static bool     _top_homing = false;
-static uint32_t _top_t0     = 0;
+/* Homing ve gioi han tren (cong tac) – co che rieng (raw PWM + cong tac).
+   Quy trinh CHUAN:
+     - Neu cong tac dang nhan (robot o dinh) -> LUI XUONG nha cong tac (BACKOFF)
+     - Roi CHAY LEN cham cong tac (SEEK) -> dat Z=Z_MAX tai diem cham.
+   Nho vay bam HOMEZ luc nao cung thuc hien 1 chu trinh home that.          */
+enum class TopH : uint8_t { OFF, BACKOFF, SEEK };
+static TopH     _top    = TopH::OFF;
+static uint32_t _top_t0 = 0;
+static float    _top_p0 = 0.0f;   /* vi tri khi bat dau BACKOFF (gioi han lui) */
 
 /* ======================== A. Instant homing ======================== */
 
 bool z_home_instant()
 {
-    int16_t d = vl53l0x_read_avg(3);   /* ~169ms (3x33ms do + 2x35ms delay) */
+    int16_t d = vl53l0x_read_median(5);   /* median 5 lan – loai spike */
     if (d < 0) {
         Serial.println("[HOME] ERR: VL53L0X khong co gia tri hop le");
         return false;
@@ -82,39 +88,59 @@ void z_home_top_start()
         Serial.println("[HOME] Dang chay – bo qua lenh moi");
         return;
     }
+    _top_t0 = millis();
     if (z_limit_top_triggered()) {
-        /* Da cham cong tac san -> chi can chuan hoa, khong chay motor */
-        z_axis_set_pos_mm((float)Z_MAX_MM);
-        Serial.println("[HOME] Da o gioi han tren -> Z=Z_MAX");
-        return;
+        /* Cong tac dang nhan (robot o dinh) -> LUI XUONG nha cong tac truoc */
+        _top    = TopH::BACKOFF;
+        _top_p0 = z_axis_get_pos_mm();
+        z_axis_raw_pwm(-(int16_t)Z_HOME_TOP_PWM);   /* di XUONG (bo qua PID) */
+        Serial.println("[HOME] Cong tac dang nhan -> lui xuong nha cong tac...");
+    } else {
+        _top = TopH::SEEK;
+        z_axis_raw_pwm((int16_t)Z_HOME_TOP_PWM);    /* chay LEN cham (bo qua PID) */
+        Serial.println("[HOME] Chay len tim cong tac gioi han tren...");
     }
-    _top_homing = true;
-    _top_t0     = millis();
-    z_axis_raw_pwm((int16_t)Z_HOME_TOP_PWM);   /* chay LEN cham (bo qua PID) */
-    Serial.println("[HOME] Chay len tim cong tac gioi han tren...");
 }
 
 void z_home_abort()
 {
-    _top_homing = false;
-    _state      = ZHState::IDLE;
+    _top   = TopH::OFF;
+    _state = ZHState::IDLE;
     z_axis_stop();
 }
 
 void z_home_update()
 {
     /* --- Homing ve gioi han tren (cong tac GPIO Z_LIMIT_TOP) --- */
-    if (_top_homing) {
-        if (z_limit_top_triggered()) {
+    if (_top != TopH::OFF) {
+        /* Timeout chung cho moi pha */
+        if (millis() - _top_t0 > (uint32_t)Z_HOME_TOP_TIMEOUT_MS) {
             z_axis_stop();
-            z_axis_set_pos_mm((float)Z_MAX_MM);
-            _top_homing = false;
-            Serial.printf("[HOME] Cham gioi han tren -> Z=%.0f mm\n", (float)Z_MAX_MM);
-        } else if (millis() - _top_t0 > (uint32_t)Z_HOME_TOP_TIMEOUT_MS) {
-            z_axis_stop();
-            _top_homing = false;
-            Serial.println("[HOME] FAIL: timeout – khong cham cong tac");
-            Serial.println("[HOME] Kiem tra chieu motor (raw PWM phai di LEN) va day cong tac");
+            _top = TopH::OFF;
+            Serial.println("[HOME] FAIL: timeout – kiem tra chieu motor va day cong tac");
+            return;
+        }
+
+        if (_top == TopH::BACKOFF) {
+            /* Dang lui xuong de nha cong tac. Chan lui qua xa (cong tac ket). */
+            if (_top_p0 - z_axis_get_pos_mm() > Z_HOME_BACKOFF_MAX_MM) {
+                z_axis_stop();
+                _top = TopH::OFF;
+                Serial.println("[HOME] FAIL: lui qua xa ma cong tac chua nha – kiem tra cong tac");
+            } else if (!z_limit_top_triggered()) {
+                /* Da nha cong tac -> doi chieu, chay LEN cham lai */
+                _top    = TopH::SEEK;
+                _top_t0 = millis();
+                z_axis_raw_pwm((int16_t)Z_HOME_TOP_PWM);
+                Serial.println("[HOME] Da nha cong tac -> chay len cham lai...");
+            }
+        } else {   /* SEEK: chay len den khi cham cong tac */
+            if (z_limit_top_triggered()) {
+                z_axis_stop();
+                z_axis_set_pos_mm((float)Z_MAX_MM);
+                _top = TopH::OFF;
+                Serial.printf("[HOME] Cham gioi han tren -> Z=%.0f mm\n", (float)Z_MAX_MM);
+            }
         }
         return;
     }
@@ -127,7 +153,7 @@ void z_home_update()
         if (z_axis_is_moving()) return;   /* Doi PID on dinh */
 
         {
-            int16_t d = vl53l0x_read_mm();
+            int16_t d = vl53l0x_read_median(5);   /* loc spike khi tim be mat */
             float   pos = z_axis_get_pos_mm();
 
             if (d > 0 && d < (int16_t)Z_HOME_NEAR_MM) {
@@ -183,14 +209,16 @@ void z_home_update()
 
 bool z_home_busy()
 {
-    return _top_homing || (_state != ZHState::IDLE);
+    return (_top != TopH::OFF) || (_state != ZHState::IDLE);
 }
 
 /* ======================== D. Phat hien vat ======================== */
 
 bool z_grip_has_object()
 {
-    int16_t d = vl53l0x_read_mm();
+    /* Median 3 lan -> 1 gai nhieu don le KHONG gay bao "mat vat" sai
+       (tranh kich hoat nhat-lai oan). ~100ms, Z dang giu nen chap nhan duoc. */
+    int16_t d = vl53l0x_read_median(3);
     if (d < 0) return true;   /* Cam bien loi: gia dinh co vat (an toan hon) */
     return (d < (int16_t)Z_GRIP_DETECT_MM);
 }

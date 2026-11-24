@@ -14,7 +14,7 @@
    ===================================================================== */
 
 /* --- Hinh hoc --- */
-#define Z_HOME_SENSOR_OFFSET_MM   8    /* Khoang cach VL53L0X -> dau giac hut (mm) */
+#define Z_HOME_SENSOR_OFFSET_MM   50    /* Khoang cach VL53L0X -> dau giac hut (mm) */
 #define Z_HOME_NEAR_MM   (Z_HOME_SENSOR_OFFSET_MM + 3)  /* Nguong "cham be mat"    */
 
 /* --- Tham so homing cham --- */
@@ -24,6 +24,13 @@
 /* --- Phat hien vat sau khi hut ---
    Sau khi nang len safe_z, neu VL53L0X < nguong nay → co vat               */
 #define Z_GRIP_DETECT_MM  (Z_HOME_SENSOR_OFFSET_MM + 15)
+
+/* --- Nguong "gan vat" khi HA Z DAN de nhat ---
+   Khi ha tung buoc, neu VL53L0X <= nguong nay thi dau giac hut da sat mat
+   vat -> dung ha va hut. Bang offset + margin nho (dau hut sat ~2mm).      */
+#define Z_PICK_NEAR_MM    (Z_HOME_SENSOR_OFFSET_MM + 2)
+/* Buoc ha khi do tim vat (mm) – nho de cham vat nhe nhang */
+#define Z_PICK_STEP_MM    1.0f
 
 /* =====================================================================
    A. Instant homing (BLOCKING ~105ms)
@@ -49,8 +56,13 @@ bool z_home_busy();      /* true khi dang homing/teach             */
        NON-BLOCKING (dung chung z_home_update / z_home_busy).
        Tin cay hon homing VL53L0X cho moc tham chieu dinh hanh trinh.
    ===================================================================== */
-#define Z_HOME_TOP_PWM         110     /* PWM nhe khi chay len tim cong tac */
+#define Z_HOME_TOP_PWM         200     /* PWM khi chay len tim cong tac.
+                                          Phai DU MANH de thang ma sat tinh +
+                                          trong luc luc khoi dong tu dung yen
+                                          (110 qua yeu -> motor khong quay).
+                                          Cong tac chan lai ngay khi cham.     */
 #define Z_HOME_TOP_TIMEOUT_MS  6000    /* Qua thoi gian nay -> bao loi      */
+#define Z_HOME_BACKOFF_MAX_MM  15.0f   /* Lui toi da de nha cong tac (an toan) */
 void z_home_top_start();
 
 /* Huy moi tac vu homing/teach dang chay (dung dong co ngay). */

@@ -127,7 +127,7 @@ Ví dụ: `@IDLE,19.0,45.0,12.30,0,142,0,0,0,93,87*14`
 | Khung | Khi nào |
 |---|---|
 | `!ST,<STATE>` | Mỗi lần state machine PP đổi trạng thái |
-| `!EVT,NOOBJ` | Sau khi hút nhưng không phát hiện vật |
+| `!EVT,WATCHDOG` | Một state PP bị kẹt quá lâu → tự abort an toàn |
 
 ---
 

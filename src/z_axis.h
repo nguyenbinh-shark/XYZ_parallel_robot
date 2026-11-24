@@ -34,8 +34,8 @@
    Pitch  : buoc vit me (mm / vong truc ra)  – chinh theo vit thuc te  */
 #define Z_ENC_PPR       11
 #define Z_GEAR_RATIO    21.3f
-#define Z_SCREW_PITCH   2.0f    /* vit me lead 8mm/vong */
-
+#define Z_SCREW_PITCH   2.0f    /* vit me lead 2mm/vong */
+   
 /* Xung/mm trong che do 4x quadrature:
    PPR * 4 * Gear / Pitch  =  11 * 4 * 21.3 / 8.0  ~= 117.15 xung/mm  */
 #define Z_PULSE_PER_MM  ((Z_ENC_PPR * 4.0f * Z_GEAR_RATIO) / Z_SCREW_PITCH)
@@ -47,7 +47,13 @@
 /* --- Bo dieu khien PD --- */
 #define Z_KP              2.5f   /* He so ty le                              */
 #define Z_KD              0.08f  /* He so dao ham – giam dao dong khi den dich*/
-#define Z_DEADBAND        4      /* Vung chet +/- xung -> dung dong co        */
+#define Z_DEADBAND        60     /* Vung chet +/- xung -> dung dong co.
+                                    ~0.128mm @468.6 xung/mm. Phai RONG hon:
+                                    (1) muc ma sat tinh giu truc (Z_PWM_MIN=55
+                                        khong day not vai xung cuoi), va
+                                    (2) bien nhieu encoder khi BOM HUT chay
+                                        (~43 xung do EMI/rung) – neu khong PID
+                                        se khong bao "den dich" -> _moving ket. */
 #define Z_PWM_MIN         55     /* PWM toi thieu de thang ma sat tinh        */
 #define Z_PWM_MAX         220    /* PWM toi da (bao ve dong, ~80% full duty)  */
 #define Z_PID_INTERVAL_MS 20     /* Chu ky cap nhat PID (ms)                  */

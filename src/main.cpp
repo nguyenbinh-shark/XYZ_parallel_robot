@@ -95,39 +95,48 @@ static PPTask pp_task = {
     /* times */ 500, 400, 300
 };
 
+/* =====================================================================
+   Pick & Place DON GIAN – thuan VI TRI + THOI GIAN, KHONG dung VL53L0X.
+   Chu trinh: nang safe_z -> XY pick -> ha pick_z -> hut -> nang safe_z
+              -> XY place -> ha place_z -> nha -> nang safe_z -> xong.
+   Bo het do cam bien trong luc chay (do dan tung buoc, verify vat, phat
+   hien roi) vi day la nguon gay treo/ket. Chi phu thuoc truc Z + servo XY
+   + giac hut + cac moc thoi gian -> chac chan, de doan.                 */
 enum class PPState : uint8_t {
     IDLE,
-    PICK_XY,        /* Di XY den vi tri lay, cho Z an toan & servo on dinh */
-    PICK_LOWER,     /* Ha Z xuong pick_z                                    */
-    PICK_GRIP,      /* Kich hoat giac hut, cho bam chac                    */
-    PICK_VERIFY,    /* Doc VL53L0X kiem tra co vat hay khong               */
-    PICK_RAISE,     /* Nang Z len safe_z                                    */
-    PLACE_XY,       /* Di XY den vi tri dat, monitor VL53L0X               */
-    PLACE_LOWER,    /* Ha Z xuong place_z                                   */
-    PLACE_DROP,     /* Mo van (non-blocking), cho nha xong                  */
-    PLACE_RAISE,    /* Nang Z len safe_z                                    */
-    DROP_DETECTED,  /* Vat roi trong luc van chuyen – xu ly loi             */
+    PICK_SAFEZ,     /* Nang Z len safe_z TRUOC (XY chua di) – an toan       */
+    PICK_XY,        /* Da o safe_z -> di XY den vi tri lay, cho on dinh     */
+    PICK_LOWER,     /* Ha Z thang xuong pick_z                             */
+    PICK_GRIP,      /* Kich hoat giac hut, cho bam chac (grip_ms)          */
+    PICK_RAISE,     /* Nang Z len safe_z                                   */
+    PLACE_XY,       /* Di XY den vi tri dat, cho servo on dinh             */
+    PLACE_LOWER,    /* Ha Z xuong place_z                                  */
+    PLACE_DROP,     /* Mo van nha vat (non-blocking), cho drop_ms          */
+    PLACE_RAISE,    /* Nang Z len safe_z                                   */
     DONE
 };
 
-static PPState  pp_state        = PPState::IDLE;
-static uint32_t pp_ms           = 0;
-static uint32_t pp_drop_chk_ms  = 0;  /* timer kiem tra VL53L0X dinh ky khi van chuyen */
+static PPState  pp_state = PPState::IDLE;
+static uint32_t pp_ms    = 0;
+
+/* Watchdog: khong state nao duoc keo dai qua lau. Neu vuot -> in chan doan
+   (cho biet co z_moving/xy_moving nao dang ket) roi abort an toan, tranh
+   treo vinh vien. Moi buoc chi la 1 lenh move don -> 12s la du rong rai.   */
+#define PP_STATE_TIMEOUT_MS        12000UL
 
 static const char* pp_state_name()
 {
     switch (pp_state) {
+        case PPState::PICK_SAFEZ:  return "PICK_SAFEZ";
         case PPState::PICK_XY:     return "PICK_XY";
         case PPState::PICK_LOWER:  return "PICK_LOWER";
         case PPState::PICK_GRIP:   return "PICK_GRIP";
-        case PPState::PICK_VERIFY: return "PICK_VERIFY";
         case PPState::PICK_RAISE:  return "PICK_RAISE";
         case PPState::PLACE_XY:    return "PLACE_XY";
         case PPState::PLACE_LOWER: return "PLACE_LOWER";
-        case PPState::PLACE_DROP:     return "PLACE_DROP";
-        case PPState::PLACE_RAISE:    return "PLACE_RAISE";
-        case PPState::DROP_DETECTED:  return "DROP_DETECTED";
-        case PPState::DONE:           return "DONE";
+        case PPState::PLACE_DROP:  return "PLACE_DROP";
+        case PPState::PLACE_RAISE: return "PLACE_RAISE";
+        case PPState::DONE:        return "DONE";
         default:                   return "IDLE";
     }
 }
@@ -166,10 +175,10 @@ static void pp_start()
                   pp_task.safe_z, pp_task.xy_settle_ms,
                   pp_task.grip_ms, pp_task.drop_ms);
 
-    /* Nang Z an toan va di XY den vi tri lay dong thoi */
+    /* Nang Z len safe_z TRUOC (XY CHUA di) – dam bao di ngang o do cao an toan.
+       XY chi bat dau khi Z da toi safe_z (xu ly trong state PICK_SAFEZ).      */
     z_axis_move_to(pp_task.safe_z);
-    move_to(pp_task.pick_x, pp_task.pick_y);
-    pp_enter(PPState::PICK_XY);
+    pp_enter(PPState::PICK_SAFEZ);
 }
 
 /* Goi lien tuc trong loop() */
@@ -178,37 +187,53 @@ static void pp_update()
     if (pp_state == PPState::IDLE) return;
     uint32_t elapsed = millis() - pp_ms;
 
+    /* --- WATCHDOG chong ket vinh vien ---
+       Neu 1 state keo dai bat thuong (vd cho truc dung nhung z_axis_is_moving()
+       /xy_is_moving() khong bao gio ve false), in chan doan CHI RO co nao dang
+       ket roi abort an toan de he thong khong treo.                          */
+    if (elapsed > PP_STATE_TIMEOUT_MS) {
+        Serial.printf("[PP] WATCHDOG: ket o %s qua %lu ms -> ABORT\n",
+                      pp_state_name(), (unsigned long)elapsed);
+        Serial.printf("[PP]   z_moving=%d  xy_moving=%d  Zpos=%.2fmm  XY=(%.1f,%.1f)  lim_top=%d\n",
+                      z_axis_is_moving() ? 1 : 0, xy_is_moving() ? 1 : 0,
+                      z_axis_get_pos_mm(), cur_x, cur_y,
+                      z_limit_top_triggered() ? 1 : 0);
+        if (z_axis_is_moving())
+            Serial.println("[PP]   -> Truc Z khong 'settle': kiem tra chieu encoder / Z_DEADBAND / PID.");
+        if (xy_is_moving())
+            Serial.println("[PP]   -> Servo XY khong bao 'xong': kiem tra noi suy servo_xy_update().");
+        proto_event("EVT", "WATCHDOG");
+        pp_abort();
+        return;
+    }
+
     switch (pp_state) {
+    case PPState::PICK_SAFEZ:
+        /* Z dang len safe_z. Xong -> gio moi di XY den vi tri lay (an toan). */
+        if (!z_axis_is_moving()) {
+            move_to(pp_task.pick_x, pp_task.pick_y);
+            pp_enter(PPState::PICK_XY);
+        }
+        break;
     case PPState::PICK_XY:
-        /* Doi ca Z dat safe_z, servo XY noi suy xong (tin hieu THAT), va
-           them dwell xy_settle_ms cho servo hobby on dinh co hoc          */
-        if (!z_axis_is_moving() && !xy_is_moving() &&
-            elapsed >= pp_task.xy_settle_ms) {
+        /* Da o safe_z, servo XY dang di den pick. Doi noi suy xong (tin hieu
+           THAT) + dwell xy_settle_ms cho servo on dinh -> ha Z THANG xuong
+           pick_z (khong do cam bien).                                       */
+        if (!xy_is_moving() && elapsed >= pp_task.xy_settle_ms) {
             z_axis_move_to(pp_task.pick_z);
             pp_enter(PPState::PICK_LOWER);
         }
         break;
     case PPState::PICK_LOWER:
+        /* Ha thang xuong pick_z. Toi noi -> hut. */
         if (!z_axis_is_moving()) {
             gripper_suck();
             pp_enter(PPState::PICK_GRIP);
         }
         break;
     case PPState::PICK_GRIP:
+        /* Cho giac hut bam chac roi nang len safe_z */
         if (elapsed >= pp_task.grip_ms) {
-            pp_enter(PPState::PICK_VERIFY);
-        }
-        break;
-    case PPState::PICK_VERIFY:
-        /* Doc VL53L0X kiem tra co vat hay khong, cho 80ms on dinh */
-        if (elapsed >= 80) {
-            if (z_grip_has_object()) {
-                Serial.println("[PP] Vat duoc hut thanh cong");
-            } else {
-                Serial.println("[PP] CANH BAO: Khong phat hien vat – kiem tra giac hut");
-                proto_event("EVT", "NOOBJ");
-                /* Tiep tuc (khong abort) – nguoi van co the dieu chinh */
-            }
             z_axis_move_to(pp_task.safe_z);
             pp_enter(PPState::PICK_RAISE);
         }
@@ -216,23 +241,11 @@ static void pp_update()
     case PPState::PICK_RAISE:
         if (!z_axis_is_moving()) {
             move_to(pp_task.place_x, pp_task.place_y);
-            pp_drop_chk_ms = millis();
             pp_enter(PPState::PLACE_XY);
         }
         break;
     case PPState::PLACE_XY:
-        /* Kiem tra VL53L0X moi 300ms – phat hien vat roi trong luc van chuyen */
-        if ((millis() - pp_drop_chk_ms) >= 300) {
-            pp_drop_chk_ms = millis();
-            if (!z_grip_has_object()) {
-                Serial.println("[PP] !!! VAT ROI – dung Z, tat bom, nang len safe_z");
-                z_axis_stop();
-                gripper_pump_off();
-                z_axis_move_to(pp_task.safe_z);
-                pp_enter(PPState::DROP_DETECTED);
-                break;
-            }
-        }
+        /* Doi servo XY toi vi tri dat + dwell on dinh -> ha Z xuong place_z */
         if (!xy_is_moving() && elapsed >= pp_task.xy_settle_ms) {
             z_axis_move_to(pp_task.place_z);
             pp_enter(PPState::PLACE_LOWER);
@@ -258,15 +271,6 @@ static void pp_update()
     case PPState::PLACE_RAISE:
         if (!z_axis_is_moving()) {
             pp_enter(PPState::DONE);
-        }
-        break;
-
-    case PPState::DROP_DETECTED:
-        /* Cho Z nang len safe_z (da lenh truoc khi vao state nay) */
-        if (!z_axis_is_moving()) {
-            Serial.println("[PP] === LOI: Vat roi – quay ve IDLE ===");
-            Serial.println("[PP]  Kiem tra giac hut va chay lai 'run'");
-            pp_state = PPState::IDLE;
         }
         break;
     case PPState::DONE:
@@ -446,15 +450,15 @@ static void cmd_help()
     Serial.println("  pump on  Bat bom (khong doi van)");
     Serial.println("  pump off Tat bom (khong doi van)");
     Serial.println("--- Homing & Teach (VL53L0X) ---");
-    Serial.println("  homez        Instant homing: doc VL53L0X, set Z ngay (~105ms)");
+    Serial.println("  homez        Homing: chay Z LEN cong tac gioi han tren -> Z=Z_MAX");
     Serial.println("  homez slow   Slow homing: ha Z tung buoc den khi gap be mat");
-    Serial.println("  hometop      Homing ve gioi han TREN (cong tac end-stop)");
+    Serial.println("  hometop      Homing ve gioi han TREN (giong homez)");
     Serial.println("  lim?         Trang thai cong tac gioi han tren");
     Serial.println("  teachpick    Ha Z tim be mat, ghi lai lam pick_z");
     Serial.println("  teachplace   Ha Z tim be mat, ghi lai lam place_z");
     Serial.println("  grip?        Kiem tra co vat hay khong (doc VL53L0X)");
     Serial.println("--- Pick & Place ---");
-    Serial.println("  pick x,y,z   Dat vi tri lay vat, vi du: pick 19,45,5");
+    Serial.println("  pick x,y,z   Vi tri lay vat (Z ha thang xuong z), vi du: pick 19,45,5");
     Serial.println("  place x,y,z  Dat vi tri dat vat, vi du: place 34,45,5");
     Serial.println("  safez z      Dat do cao an toan, vi du: safez 20");
     Serial.println("  settle ms    Thoi gian cho servo XY (ms), vi du: settle 500");
@@ -637,7 +641,7 @@ static void proto_handle(const String &line)
     }
     if (cmd == "LIMQ") { proto_ok(seq, "LIMQ", z_limit_top_triggered() ? "1" : "0"); return; }
     if (cmd == "PPINFO") {
-        char b[96];
+        char b[104];
         snprintf(b, sizeof(b), "%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%u,%u,%u",
                  pp_task.pick_x, pp_task.pick_y, pp_task.pick_z,
                  pp_task.place_x, pp_task.place_y, pp_task.place_z,
@@ -691,9 +695,8 @@ static void proto_handle(const String &line)
     /* ===== Nhom 3: homing / teach (chan khi dang ban) ===== */
     if (cmd == "HOMEZ") {
         if (z_home_busy() || pp_is_busy()) { proto_err(seq, "BUSY"); return; }
-        bool ok = z_home_instant();
-        if (!ok) z_home_slow_start();
-        proto_ok(seq, "HOMEZ", ok ? "instant" : "slow");
+        z_home_top_start();   /* chay Z LEN cong tac gioi han tren -> Z=Z_MAX */
+        proto_ok(seq, "HOMEZ", "top");
         return;
     }
     if (cmd == "HOMEZS") {
@@ -773,11 +776,8 @@ static void process(const String &cmd)
         if (z_home_busy() || pp_is_busy()) {
             Serial.println("[HOME] ERR: Dang co tac vu khac chay");
         } else {
-            Serial.println("[HOME] Instant homing...");
-            if (!z_home_instant()) {
-                Serial.println("[HOME] Fallback sang slow homing. Dam bao robot o vi tri cao nhat!");
-                z_home_slow_start();
-            }
+            Serial.println("[HOME] Homing Z len cong tac gioi han TREN...");
+            z_home_top_start();   /* chay Z LEN cham cong tac -> dat Z=Z_MAX */
         }
         return;
     }
@@ -1008,7 +1008,7 @@ void loop()
     if (millis() - oled_ms >= 300) {
         oled_ms = millis();
         if (!pp_is_busy()) {
-            oled_dist = vl53l0x_read_mm();
+            oled_dist = vl53l0x_read_filtered();   /* median3 + EMA: muot, chong nhay */
         }
         oled_update(cur_x, cur_y, z_axis_get_pos_mm(),
                     gripper_is_sucking(), pp_state_name(), oled_dist);
